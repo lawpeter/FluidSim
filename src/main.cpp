@@ -1,6 +1,8 @@
 #include <iostream>
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
+#include "fragmentcopy.glsl"
+#include "vertexcopy.glsl"
 
 #define SCREEN_WIDTH 400
 #define SCREEN_HEIGHT 400
@@ -10,12 +12,11 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height)
     glViewport(0, 0, width, height);
 }
 
-int main(int argc, char* argv[])
+GLFWwindow* loadSim()
 {
     if (!glfwInit())
     {
         std::cout << "brokey" << std::endl;
-        return -1;
     }
 
     glfwWindowHint(GLFW_SAMPLES, 4);
@@ -29,21 +30,101 @@ int main(int argc, char* argv[])
     if (window == NULL)
     {
         std::cout << "brokey 2" << std::endl;
-        return -2;
     }
     glfwMakeContextCurrent(window);
 
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
     {
         std::cout << "brokey 3" << std::endl;
-        return -3;
     }
 
     glViewport(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
 
+    return window;
+}
+
+GLuint createShaderProgram(const char* vertexSource, const char* fragmentSource)
+{
+    //compile shaders
+    GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(vertexShader, 1, &vertexSource, NULL);
+    glCompileShader(vertexShader);
+
+    GLuint fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(fragmentShader, 1, &fragmentSource, NULL);
+    glCompileShader(fragmentShader);
+
+    //create program and attach
+    GLuint shaderProgram = glCreateProgram();
+    glAttachShader(shaderProgram, vertexShader);
+    glAttachShader(shaderProgram, fragmentShader);
+
+    //link
+    glLinkProgram(shaderProgram);
+
+    //cleanup shaders
+    glDeleteShader(vertexShader);
+    glDeleteShader(fragmentShader);
+
+    return shaderProgram;
+}
+
+void initializeMesh(std::vector<float>& meshVertices)
+{
+    int resolution = 40;
+    
+    meshVertices.push_back(0.0f);
+    meshVertices.push_back(0.0f);
+
+    for (int i = 0; i <= resolution; i++) {
+        float angle = (2.0f * M_PI * i) / resolution;
+        float x = cos(angle);
+        float y = sin(angle);
+        meshVertices.push_back(x);
+        meshVertices.push_back(y);
+    }
+}
+
+int main(int argc, char* argv[])
+{
+    GLFWwindow* window = loadSim();
+
+    if (window == NULL)
+    {
+        return -1;
+    }
+
+    GLuint VAO;
+    GLuint meshVBO;
+
+    GLuint shaderProgram = createShaderProgram(vertexShaderSource, fragmentShaderSource);
+
+    std::vector<float> meshVertices;
+    initializeMesh(meshVertices);
+
+    glGenVertexArrays(1, &VAO);
+    glBindVertexArray(VAO);
+    glGenBuffers(1, &meshVBO);
+    glBindBuffer(GL_ARRAY_BUFFER, meshVBO);
+    glBufferData(GL_ARRAY_BUFFER, meshVertices.size() * sizeof(float), meshVertices.data(), GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+
     while (!glfwWindowShouldClose(window))
     {
+        // Clear screen each frame
+        glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+
+        // Activate the shader program
+        glUseProgram(shaderProgram);
+
+        glBindVertexArray(VAO);
+        glDrawArrays(GL_TRIANGLE_FAN, 0, meshVertices.size());
+        glBindVertexArray(0);
+
+
         glfwSwapBuffers(window);
         glfwPollEvents();
     }
