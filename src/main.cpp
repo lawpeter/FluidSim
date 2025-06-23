@@ -147,15 +147,6 @@ int main(int argc, char* argv[])
 
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 
-    for (int i = 0; i < 4; i++)
-    {
-        for (int j = 0; j < 4; j++)
-        {
-            printf("%f\n", projection[j][i]);
-        }
-    }
-
-
     while (!glfwWindowShouldClose(window))
     {
         // Activate the shader program
