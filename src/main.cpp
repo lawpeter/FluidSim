@@ -1,11 +1,15 @@
 #include <iostream>
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include "fragment.glsl"
 #include "vertex.glsl"
+#include "particle.cpp"
 
-#define SCREEN_WIDTH 400
-#define SCREEN_HEIGHT 400
+
+#define SCREEN_WIDTH 800.0f
+#define SCREEN_HEIGHT 800.0f
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 {
@@ -79,15 +83,28 @@ void initializeMesh(std::vector<float>& meshVertices)
 
     for (int i = 0; i <= resolution; i++) {
         float angle = (2.0f * M_PI * i) / resolution;
-        float x = cos(angle);
-        float y = sin(angle);
+        float x = (cos(angle) * 10);
+        float y = (sin(angle) * 10);
         meshVertices.push_back(x);
         meshVertices.push_back(y);
     }
 }
 
+void initializeParticles(std::vector<Particle>& particles)
+{
+    int numParticles = 10;
+    int scale = 10;
+
+    for (int i = 0; i < numParticles; i++)
+    {
+        Particle temp(std::pair<float, float>(100 + (i * 3 * scale), 100), std::pair<float, float>(0, 0));
+        particles.push_back(temp);
+    }
+}
+
 int main(int argc, char* argv[])
 {
+    glm::mat4 projection = glm::ortho(0.0f, SCREEN_WIDTH, 0.0f, SCREEN_HEIGHT, -1.0f, 1.0f);
     GLFWwindow* window = loadSim();
 
     if (window == NULL)
@@ -97,32 +114,52 @@ int main(int argc, char* argv[])
 
     GLuint VAO;
     GLuint meshVBO;
+    GLuint particleVBO;
 
     GLuint shaderProgram = createShaderProgram(vertexShaderSource, fragmentShaderSource);
 
     std::vector<float> meshVertices;
     initializeMesh(meshVertices);
 
+    std::vector<Particle> particles;
+    initializeParticles(particles);
+
     glGenVertexArrays(1, &VAO);
     glBindVertexArray(VAO);
+
     glGenBuffers(1, &meshVBO);
     glBindBuffer(GL_ARRAY_BUFFER, meshVBO);
     glBufferData(GL_ARRAY_BUFFER, meshVertices.size() * sizeof(float), meshVertices.data(), GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), NULL);
+
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
 
-    // Activate the shader program
-    glUseProgram(shaderProgram);
+    glGenBuffers(1, &particleVBO);
+    glBindBuffer(GL_ARRAY_BUFFER, particleVBO);
+    glBufferData(GL_ARRAY_BUFFER, particles.size() * sizeof(Particle), particles.data(), GL_STATIC_DRAW);
+
+    GLsizei stride = sizeof(Particle);
+
+    // particlePosition > location 1, vec2
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, stride, (void*)offsetof(Particle, position));
+    glEnableVertexAttribArray(1);
+    glVertexAttribDivisor(1, 1);
+
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
 
     while (!glfwWindowShouldClose(window))
     {
+        // Activate the shader program
+        glUseProgram(shaderProgram);
+
         // Clear screen each frame
         glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
-        glBindVertexArray(VAO);
-        glDrawArrays(GL_TRIANGLE_FAN, 0, meshVertices.size());
-        glBindVertexArray(0);
+        GLint projectionUniformLocation = glGetUniformLocation(shaderProgram, "projection");
+        glUniformMatrix4fv(projectionUniformLocation, 1, GL_FALSE, &projection[0][0]);
+
+        glDrawArraysInstanced(GL_TRIANGLE_FAN, 0, meshVertices.size(), particles.size());
 
         glfwSwapBuffers(window);
         glfwPollEvents();
