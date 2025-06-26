@@ -1,8 +1,8 @@
 #include <iostream>
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
-#include "fragmentcopy.glsl"
-#include "vertexcopy.glsl"
+#include "fragment.glsl"
+#include "vertex.glsl"
 
 #define SCREEN_WIDTH 400
 #define SCREEN_HEIGHT 400
@@ -108,8 +108,11 @@ int main(int argc, char* argv[])
     glGenBuffers(1, &meshVBO);
     glBindBuffer(GL_ARRAY_BUFFER, meshVBO);
     glBufferData(GL_ARRAY_BUFFER, meshVertices.size() * sizeof(float), meshVertices.data(), GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), NULL);
     glEnableVertexAttribArray(0);
+
+    // Activate the shader program
+    glUseProgram(shaderProgram);
 
     while (!glfwWindowShouldClose(window))
     {
@@ -117,13 +120,9 @@ int main(int argc, char* argv[])
         glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
-        // Activate the shader program
-        glUseProgram(shaderProgram);
-
         glBindVertexArray(VAO);
         glDrawArrays(GL_TRIANGLE_FAN, 0, meshVertices.size());
         glBindVertexArray(0);
-
 
         glfwSwapBuffers(window);
         glfwPollEvents();
