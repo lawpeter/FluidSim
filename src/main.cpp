@@ -1,4 +1,3 @@
-#include <iostream>
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
@@ -7,9 +6,20 @@
 #include "vertex.glsl"
 #include "particle.cpp"
 
+#ifndef DIMENSIONS
 
+#define DIMENSIONS
 #define SCREEN_WIDTH 800.0f
 #define SCREEN_HEIGHT 800.0f
+
+#endif
+
+#ifndef INCLUDE
+
+#define INCLUDE
+#include <iostream>
+
+#endif
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 {
@@ -71,6 +81,9 @@ GLuint createShaderProgram(const char* vertexSource, const char* fragmentSource)
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
 
+    // Activate the shader program
+    glUseProgram(shaderProgram);
+
     return shaderProgram;
 }
 
@@ -97,7 +110,7 @@ void initializeParticles(std::vector<Particle>& particles)
 
     for (int i = 0; i < numParticles; i++)
     {
-        Particle temp(std::pair<float, float>(100 + (i * 3 * scale), 100), std::pair<float, float>(0, 0));
+        Particle temp(glm::vec2(100 + (i * 3 * scale), 100), glm::vec2(0, 0));
         particles.push_back(temp);
     }
 }
@@ -118,6 +131,9 @@ int main(int argc, char* argv[])
 
     GLuint shaderProgram = createShaderProgram(vertexShaderSource, fragmentShaderSource);
 
+    GLint projectionUniformLocation = glGetUniformLocation(shaderProgram, "projection");
+    glUniformMatrix4fv(projectionUniformLocation, 1, GL_FALSE, &projection[0][0]);
+
     std::vector<float> meshVertices;
     initializeMesh(meshVertices);
 
@@ -136,7 +152,7 @@ int main(int argc, char* argv[])
 
     glGenBuffers(1, &particleVBO);
     glBindBuffer(GL_ARRAY_BUFFER, particleVBO);
-    glBufferData(GL_ARRAY_BUFFER, particles.size() * sizeof(Particle), particles.data(), GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, particles.size() * sizeof(Particle), particles.data(), GL_DYNAMIC_DRAW);
 
     GLsizei stride = sizeof(Particle);
 
@@ -147,23 +163,43 @@ int main(int argc, char* argv[])
 
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 
+    double lastTime = glfwGetTime();
+    int timeCount = 0;
+    float deltaTimeSum = 0.0f;
     while (!glfwWindowShouldClose(window))
     {
-        // Activate the shader program
-        glUseProgram(shaderProgram);
+        double nowTime = glfwGetTime();
+        float deltaTime = (float) nowTime - lastTime;
+        lastTime = nowTime;
+
+        deltaTimeSum += deltaTime;
+        timeCount++;
 
         // Clear screen each frame
         glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
-        GLint projectionUniformLocation = glGetUniformLocation(shaderProgram, "projection");
-        glUniformMatrix4fv(projectionUniformLocation, 1, GL_FALSE, &projection[0][0]);
+        for (int i = 0; i < particles.size(); i++)
+        {
+            particles[i].accelerate(glm::vec2(0.0f, -9.8f * deltaTime));
+        }
+        
+        for (int i = 0; i < particles.size(); i++)
+        {
+            particles[i].updatePosition(deltaTime);
+        }
+
+        glBindBuffer(GL_ARRAY_BUFFER, particleVBO);
+        glBufferData(GL_ARRAY_BUFFER, particles.size()*sizeof(Particle), particles.data(), GL_DYNAMIC_DRAW);
+        
 
         glDrawArraysInstanced(GL_TRIANGLE_FAN, 0, meshVertices.size(), particles.size());
 
         glfwSwapBuffers(window);
         glfwPollEvents();
     }
+
+    std::cout << "Average FPS: " << 1 / (deltaTimeSum / timeCount) << std::endl;
 
     glfwTerminate();
     return 0;
