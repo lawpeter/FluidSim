@@ -165,7 +165,7 @@ glm::vec2 calculatePressureForce(Particle p, std::vector<Particle>& particles, s
         glm::vec2 direction = glm::vec2(p.position.x - particles[i].position.x, p.position.y - particles[i].position.y) / distance;
         float slope = smoothingKernelDerivative(smoothingRadius, distance);
         float density = densities[i];
-        pressureForce += -1.0f * convertDensityToPressure(density, targetDensity, pressureMultiplier);
+        pressureForce += 1.0f * convertDensityToPressure(density, targetDensity, pressureMultiplier) * direction * slope / density;
     }
 
     return pressureForce;
@@ -224,8 +224,8 @@ int main(int argc, char* argv[])
     float deltaTimeSum = 0.0f;
 
     float smoothingRadius = 40.0f;
-    float targetDensity = 0.0001f;
-    float pressureMultiplier = 1.0f;
+    float targetDensity = 1.0f;
+    float pressureMultiplier = 50.0f;
     std::vector<float> densities;
 
     while (!glfwWindowShouldClose(window))
@@ -243,7 +243,7 @@ int main(int argc, char* argv[])
 
         for (int i = 0; i < particles.size(); i++)
         {
-            particles[i].accelerate(glm::vec2(0.0f, -9.8f * deltaTime));
+            //particles[i].accelerate(glm::vec2(0.0f, -9.8f * deltaTime));
             densities.push_back(calculateDensities(particles[i], particles, smoothingRadius));
         }
 
@@ -251,7 +251,7 @@ int main(int argc, char* argv[])
         {
             glm::vec2 pressureForce = calculatePressureForce(particles[i], particles, densities, smoothingRadius, targetDensity, pressureMultiplier);
             glm::vec2 pressureAcceleration = pressureForce / densities[i];
-            particles[i].accelerate(pressureAcceleration * deltaTime * 1e-1f);
+            particles[i].accelerate(pressureAcceleration * deltaTime);
         }
         
         for (int i = 0; i < particles.size(); i++)
