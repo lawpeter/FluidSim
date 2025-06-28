@@ -23,6 +23,8 @@ private:
 public:
     glm::vec2 position;
     glm::vec2 velocity;
+    static constexpr float radius = 5.0f;
+    static float restitution;
     Particle(glm::vec2 position, glm::vec2 velocity) : 
         position(position), velocity(velocity) {}
     void accelerate(glm::vec2 acceleration)
@@ -35,27 +37,25 @@ public:
         position.x += velocity.x * deltaTime;
         position.y += velocity.y * deltaTime;
 
-        if (position.x - 10.0f < 0.0f)
+        if (position.x - radius < 0.0f)
         {
-            position.x = 10.0f;
-            velocity.x *= -1.0f;
+            position.x = radius;
+            velocity.x *= -restitution;
         }
-        else if (position.x + 10.0f > SCREEN_WIDTH)
+        else if (position.x + radius > SCREEN_WIDTH)
         {
-            position.x = SCREEN_WIDTH - 10.0f;
-            velocity.x *= -1.0f;
+            position.x = SCREEN_WIDTH - radius;
+            velocity.x *= -restitution;
         }
-        if (position.y - 10.0f < 0.0f)
+        if (position.y - radius < 0.0f)
         {
-            position.y = 10.0f;
-            velocity.y *= -1.0f;           
+            position.y = radius;
+            velocity.y *= -restitution;           
         }
-        else if (position.y + 10.0f > SCREEN_HEIGHT)
+        else if (position.y + radius > SCREEN_HEIGHT)
         {
-            position.y = SCREEN_HEIGHT - 10.0f;
-            velocity.y *= -1.0f;
+            position.y = SCREEN_HEIGHT - radius;
+            velocity.y *= -restitution;
         }
-
-
     }
 };

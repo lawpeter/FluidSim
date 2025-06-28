@@ -11,6 +11,7 @@
                 "-L${workspaceFolder}/lib",
                 "${workspaceFolder}/src/*.cpp",
                 "${workspaceFolder}/src/glad.c",
+                "${workspaceFolder}/include/imgui/*.cpp",
                 "-lglfw3",
                 "-o",
                 "${workspaceFolder}/fluidsim.o",
