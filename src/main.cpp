@@ -25,7 +25,7 @@
 
 #endif
 
-const float smoothingRadius = 8.0f * Particle::radius;
+const float smoothingRadius = 4.0f * Particle::radius;
 float targetDensity = 2.75f;
 float pressureMultiplier = 0.5f;
 float nearPressureMultiplier = 10.0f;
@@ -303,7 +303,9 @@ int main(int argc, char* argv[])
         for (int i = 0; i < particles.size(); i++)
         {
             particles[i].updatePosition(deltaTime);
+            std::cout << densities[i] << std::endl;
         }
+        std::cout << std::endl;
 
         glBindBuffer(GL_ARRAY_BUFFER, particleVBO);
         glBufferData(GL_ARRAY_BUFFER, particles.size()*sizeof(Particle), particles.data(), GL_DYNAMIC_DRAW);
@@ -312,7 +314,7 @@ int main(int argc, char* argv[])
         glDrawArraysInstanced(GL_TRIANGLE_FAN, 0, meshVertices.size(), particles.size());
 
         ImGui::Begin("Controls");
-        ImGui::SliderFloat("PressureMultiplier", &pressureMultiplier, 1.0f, 100.0f);
+        ImGui::SliderFloat("PressureMultiplier", &pressureMultiplier, 1.0f, 1000.0f);
         ImGui::SliderFloat("Gravity", &gravity, 0.0f, 1000.0f);
         ImGui::SliderFloat("targetDensity", &targetDensity, 0.0f, 20.0f);
         ImGui::SliderFloat("restitution", &Particle::restitution, 0.0f, 1.0f);
@@ -323,6 +325,7 @@ int main(int argc, char* argv[])
         ImGui_ImplGlfwGL3_RenderDrawData(ImGui::GetDrawData());
         glfwSwapBuffers(window);
         glfwPollEvents();
+        
     }
 
     std::cout << "Average FPS: " << 1 / (deltaTimeSum / timeCount) << std::endl;
