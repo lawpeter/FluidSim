@@ -29,9 +29,10 @@ const float smoothingRadius = 4.0f * Particle::radius;
 float targetDensity = 2.75f;
 float pressureMultiplier = 0.5f;
 float nearPressureMultiplier = 1.0f;
-float gravity = 5.0f;
+float gravity = 12.0f;
 float Particle::restitution = 0.9f;
 float mass = 1.0f;
+float viscosityStrength = 0.03f;
 
 GLFWwindow* loadSim()
 {
@@ -111,7 +112,7 @@ void initializeMesh(std::vector<float>& meshVertices)
 
 void initializeParticles(std::vector<Particle>& particles)
 {
-    int numParticles = 30;
+    int numParticles = 40;
 
     for (int i = 0; i < numParticles; i++)
     {
@@ -123,7 +124,7 @@ void initializeParticles(std::vector<Particle>& particles)
     }
 }
 
-float smoothingKernel(float distance)
+float densityKernel(float distance)
 {
     if (distance >= smoothingRadius) return 0.0f;
 
@@ -131,7 +132,7 @@ float smoothingKernel(float distance)
     return (smoothingRadius - distance) * (smoothingRadius - distance) * scaleFactor;
 }
 
-float smoothingKernelDerivative(float distance)
+float densityKernelDerivative(float distance)
 {
     if (distance >= smoothingRadius) return 0.0f;
 
@@ -139,7 +140,7 @@ float smoothingKernelDerivative(float distance)
     return -(smoothingRadius - distance) * scaleFactor;
 }
 
-float nearSmoothingKernel(float distance)
+float nearDensityKernel(float distance)
 {
     if (distance >= smoothingRadius) return 0.0f;
 
@@ -147,7 +148,7 @@ float nearSmoothingKernel(float distance)
     return (smoothingRadius - distance) * (smoothingRadius - distance) * (smoothingRadius - distance) * scaleFactor;
 }
 
-float nearSmoothingKernelDerivative(float distance)
+float nearDensityKernelDerivative(float distance)
 {
     if (distance >= smoothingRadius) return 0.0f;
 
@@ -174,8 +175,8 @@ void calculateDensities(std::vector<Particle>& particles, std::vector<Particle>&
             if (sqrDistanceToOtherParticle > (smoothingRadius * smoothingRadius)) continue;
 
             float distance = sqrt(sqrDistanceToOtherParticle);
-            float influence = smoothingKernel(distance);
-            float nearInfluence = nearSmoothingKernel(distance);
+            float influence = densityKernel(distance);
+            float nearInfluence = nearDensityKernel(distance);
 
             density += mass * influence;
             nearDensity += mass * nearInfluence;
@@ -229,11 +230,41 @@ glm::vec2 calculatePressureForce(int particleIndex, std::vector<Particle>& parti
         float sharedPressure = (currentPressure + otherPressure) * 0.5f;
         float sharedNearPressure = (currentNearPressure + otherNearPressure) * 0.5f;
 
-        pressureForce += dirToOtherParticle * smoothingKernelDerivative(distance) * sharedPressure / otherDensity;
-        pressureForce += dirToOtherParticle * nearSmoothingKernelDerivative(distance) * sharedNearPressure / otherNearDensity;
+        pressureForce += dirToOtherParticle * densityKernelDerivative(distance) * sharedPressure / otherDensity;
+        pressureForce += dirToOtherParticle * nearDensityKernelDerivative(distance) * sharedNearPressure / otherNearDensity;
     }
 
     return pressureForce;
+}
+
+float viscosityKernel(float squareDistance)
+{
+    if (squareDistance >= smoothingRadius * smoothingRadius) return 0.0f;
+    
+    float scale = 4 / (M_PI * pow(smoothingRadius, 8));
+    return pow(((smoothingRadius * smoothingRadius) - squareDistance), 3) * scale;
+}
+
+glm::vec2 calculateViscosity(int particleIndex, std::vector<Particle>& particles, std::vector<Particle>& predictedParticles)
+{
+    glm::vec2 viscosityForce(0, 0);
+    glm::vec2 currentParticlePos = predictedParticles[particleIndex].position;
+    for (int otherParticleIndex = 0; otherParticleIndex < particles.size(); otherParticleIndex++)
+    {
+        if (otherParticleIndex == particleIndex) continue;
+
+        glm::vec2 otherPacticlePos = predictedParticles[otherParticleIndex].position;
+        
+        glm::vec2 offsetToOtherParticle = otherPacticlePos - currentParticlePos;
+        float sqrDistanceToOtherParticle = glm::dot(offsetToOtherParticle, offsetToOtherParticle);
+
+        if (sqrDistanceToOtherParticle > (smoothingRadius * smoothingRadius)) continue;
+        
+        glm::vec2 otherVelocity = particles[otherParticleIndex].velocity;
+        viscosityForce += (otherVelocity - particles[particleIndex].velocity) * viscosityKernel(sqrDistanceToOtherParticle);
+    }
+
+    return viscosityForce * viscosityStrength;
 }
 
 int main(int argc, char* argv[])
@@ -334,7 +365,10 @@ int main(int argc, char* argv[])
             glm::vec2 pressureAcceleration = pressureForce / glm::max(densities[i], 1e-4f);
             particles[i].accelerate(pressureAcceleration * deltaTime);
 
-            
+            glm::vec2 viscosityForce = calculateViscosity(i, particles, predictedParticles);
+            glm::vec2 viscosityAcceleration = viscosityForce / glm::max(densities[i], 1e-4f);
+            particles[i].accelerate(viscosityAcceleration * deltaTime);
+
             /*std::cout << "Particle: " << i << std::endl;
             std::cout << "Position: " << particles[i].position.x << " " << particles[i].position.y << std::endl;
             std::cout << "Velocity: " << particles[i].velocity.x << " " << particles[i].velocity.y << std::endl;
