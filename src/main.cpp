@@ -110,7 +110,7 @@ void initializeMesh(std::vector<float>& meshVertices)
 
 void initializeParticles(std::vector<Particle>& particles)
 {
-    int numParticles = 25;
+    int numParticles = 30;
 
     for (int i = 0; i < numParticles; i++)
     {
@@ -169,20 +169,21 @@ float calculateSharedPressure(float densityA, float densityB)
     return (pressureA + pressureB) / 2.0f;
 }
 
-glm::vec2 calculatePressureForce(int particleIndex, std::vector<Particle>& particles, std::vector<float>& densities)
+glm::vec2 calculatePressureForce(int particleIndex, std::vector<Particle>& particles, std::vector<Particle>& predictedParticles, std::vector<float>& densities)
 {
+    /*
     glm::vec2 pressureForce = glm::vec2(0.0f, 0.0f);
-
+    
     float maxslope;
     float distance;
-
+    
     for (int i = 0; i < particles.size(); i++)
     {
         if (particleIndex == i) continue;
-
+        
         distance = glm::length(glm::vec2(particles[i].position.x - particles[particleIndex].position.x, particles[i].position.y - particles[particleIndex].position.y));
         glm::vec2 direction = glm::vec2(particles[i].position.x - particles[particleIndex].position.x, particles[i].position.y - particles[particleIndex].position.y) / distance;
-
+        
         
         if (distance == 0) direction = glm::circularRand(1.0f);
         float slope = smoothingKernelDerivative(distance);
@@ -192,8 +193,37 @@ glm::vec2 calculatePressureForce(int particleIndex, std::vector<Particle>& parti
         float sharedPressure = calculateSharedPressure(density, densities[i]);
         pressureForce += 1.0f * sharedPressure * direction * mass * slope / glm::max(density, 1e-4f);
     }
-
+    
     return glm::vec2(pressureForce);
+    */
+   
+    glm::vec2 currentParticlePos = predictedParticles[particleIndex].position;
+    float currentDensity = densities[particleIndex];
+    float currentPressure = convertDensityToPressure(currentDensity);
+
+    glm::vec2 pressureForce(0, 0);
+
+    for (int otherParticleIndex = 0; otherParticleIndex < particles.size(); otherParticleIndex++) 
+    {
+        glm::vec2 otherPacticlePos = predictedParticles[otherParticleIndex].position;
+        
+        glm::vec2 offsetToOtherParticle = otherPacticlePos - currentParticlePos;
+        float sqrDistanceToOtherParticle = glm::dot(offsetToOtherParticle, offsetToOtherParticle);
+
+        if (sqrDistanceToOtherParticle > (smoothingRadius * smoothingRadius)) continue;
+        
+        float distance = sqrt(sqrDistanceToOtherParticle);
+        glm::vec2 dirToOtherParticle = distance > 0 ? offsetToOtherParticle / distance : glm::vec2(0, 1);
+
+        float otherDensity = densities[otherParticleIndex];
+        float otherPressure = convertDensityToPressure(otherDensity);
+    
+        float sharedPressure = (currentPressure + otherPressure) * 0.5f;
+
+        pressureForce += dirToOtherParticle * smoothingKernelDerivative(distance) * sharedPressure / otherDensity;
+    }
+
+    return pressureForce;
 }
 
 int main(int argc, char* argv[])
@@ -263,7 +293,8 @@ int main(int argc, char* argv[])
     while (!glfwWindowShouldClose(window))
     {
         double nowTime = glfwGetTime();
-        float deltaTime = (float) nowTime - lastTime;
+        // float deltaTime = (float) nowTime - lastTime;
+        float deltaTime = 1 / 120.0f;
         lastTime = nowTime;
 
         deltaTimeSum += deltaTime;
@@ -287,10 +318,12 @@ int main(int argc, char* argv[])
 
         for (int i = 0; i < particles.size(); i++)
         {
-            glm::vec2 calculatedForce = calculatePressureForce(i, particles, densities);
+            glm::vec2 calculatedForce = calculatePressureForce(i, particles, predictedParticles, densities);
             glm::vec2 pressureForce = calculatedForce;
             glm::vec2 pressureAcceleration = pressureForce / glm::max(densities[i], 1e-4f);
             particles[i].accelerate(pressureAcceleration * deltaTime);
+
+            /*
             std::cout << "Particle: " << i << std::endl;
             std::cout << "Position: " << particles[i].position.x << " " << particles[i].position.y << std::endl;
             std::cout << "Velocity: " << particles[i].velocity.x << " " << particles[i].velocity.y << std::endl;
@@ -298,6 +331,7 @@ int main(int argc, char* argv[])
             std::cout << "Force: " << pressureForce.x << " " << pressureForce.y << std::endl;
             std::cout << "Density: " << densities[i] << std::endl;
             std::cout << std::endl;
+            */
         }
 
         for (int i = 0; i < particles.size(); i++)
@@ -305,7 +339,8 @@ int main(int argc, char* argv[])
             particles[i].updatePosition(deltaTime);
             
         }
-        std::cout << std::endl;
+        
+        // std::cout << std::endl;
         
 
         glBindBuffer(GL_ARRAY_BUFFER, particleVBO);
@@ -315,7 +350,7 @@ int main(int argc, char* argv[])
         glDrawArraysInstanced(GL_TRIANGLE_FAN, 0, meshVertices.size(), particles.size());
 
         ImGui::Begin("Controls");
-        ImGui::SliderFloat("PressureMultiplier", &pressureMultiplier, 1.0f, 1000.0f);
+        ImGui::SliderFloat("PressureMultiplier", &pressureMultiplier, 0.5f, 200.0f);
         ImGui::SliderFloat("Gravity", &gravity, 0.0f, 1000.0f);
         ImGui::SliderFloat("targetDensity", &targetDensity, 0.0f, 20.0f);
         ImGui::SliderFloat("restitution", &Particle::restitution, 0.0f, 1.0f);
