@@ -126,7 +126,7 @@ float smoothingKernel(float smoothingRadius, float distance)
 {
     if (distance >= smoothingRadius) return 0.0f;
 
-    float scaleFactor = 6.0f / (M_PI * pow(smoothingRadius, 4));
+    float scaleFactor = 6.0f / (M_PI * pow(smoothingRadius, 2));
     return (smoothingRadius - distance) * (smoothingRadius - distance) * scaleFactor;
 }
 
@@ -134,7 +134,8 @@ float smoothingKernelDerivative(float smoothingRadius, float distance)
 {
     if (distance >= smoothingRadius) return 0.0f;
 
-    float scaleFactor = 12.0f / (pow(smoothingRadius, 4) * M_PI);
+    // float scaleFactor = 12.0f / (pow(smoothingRadius, 2) * M_PI);
+    float scaleFactor = (pow(smoothingRadius, 2) * M_PI) / 12.0f;
     return (distance - smoothingRadius) * scaleFactor;
 }
 
@@ -158,7 +159,7 @@ std::pair<float, float> calculateDensities(Particle p, std::vector<Particle>& pa
 {
     float density = 0.0f;
     float nearDensity = 0.0f;
-    const float mass = 1.0f;
+    const float mass = 100.0f;
 
     for (Particle other : particles)
     {
@@ -197,8 +198,9 @@ std::pair<glm::vec2, glm::vec2> calculatePressureForce(int particleIndex, std::v
         float density = densities[i];
         float nearDensity = nearDensities[i];
         std::pair<float, float> pressurePair = convertDensityToPressure(density, nearDensity, targetDensity, pressureMultiplier, nearPressureMultiplier);
-        pressureForce += -1.0f * pressurePair.first * direction * slope / glm::max(density, 1e-4f);
-        nearPressureForce += -1.0f * pressurePair.second * direction * slope / glm::max(density, 1e-4f);
+        pressureForce += -1.0f * pressurePair.first * 100.0f * direction * slope / glm::max(density, 1e-4f);
+
+        // nearPressureForce += -1.0f * pressurePair.second * 100.0f * direction * slope / glm::max(density, 1e-4f);
     }
 
     return std::pair<glm::vec2, glm::vec2>(pressureForce, nearPressureForce);
@@ -298,12 +300,13 @@ int main(int argc, char* argv[])
             glm::vec2 nearPressureAcceleration = nearPressureForce / glm::max(densities[i], 1e-4f);
             particles[i].accelerate(pressureAcceleration * deltaTime);
             //particles[i].accelerate(nearPressureAcceleration * -deltaTime);
+            std::cout << pressureAcceleration.x * deltaTime << " " << pressureAcceleration.y * deltaTime << " " << deltaTime << std::endl;
+
         }
         
         for (int i = 0; i < particles.size(); i++)
         {
             particles[i].updatePosition(deltaTime);
-            std::cout << densities[i] << std::endl;
         }
         std::cout << std::endl;
 
