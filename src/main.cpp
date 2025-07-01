@@ -28,9 +28,9 @@
 const float smoothingRadius = 4.0f * Particle::radius;
 float targetDensity = 2.75f;
 float pressureMultiplier = 0.5f;
-float nearPressureMultiplier = 10.0f;
-float gravity = 0.0f;
+float gravity = 5.0f;
 float Particle::restitution = 0.9f;
+float mass = 1.0f;
 
 GLFWwindow* loadSim()
 {
@@ -122,7 +122,7 @@ void initializeParticles(std::vector<Particle>& particles)
     }
 }
 
-float smoothingKernel(float smoothingRadius, float distance)
+float smoothingKernel(float distance)
 {
     if (distance >= smoothingRadius) return 0.0f;
 
@@ -130,7 +130,7 @@ float smoothingKernel(float smoothingRadius, float distance)
     return (smoothingRadius - distance) * (smoothingRadius - distance) * scaleFactor;
 }
 
-float smoothingKernelDerivative(float smoothingRadius, float distance)
+float smoothingKernelDerivative(float distance)
 {
     if (distance >= smoothingRadius) return 0.0f;
 
@@ -139,71 +139,61 @@ float smoothingKernelDerivative(float smoothingRadius, float distance)
     return (distance - smoothingRadius) * scaleFactor;
 }
 
-float nearSmoothingKernel(float smoothingRadius, float distance)
+void calculateDensities(std::vector<Particle>& particles, std::vector<float>& densities)
 {
-    if (distance >= smoothingRadius) return 0.0f;
+    for (int i = 0; i < particles.size(); i++)
+    {  
+        float density = 0.0f;
 
-    float scaleFactor = 10 / (M_PI * pow(smoothingRadius, 5));
-    return (smoothingRadius - distance) * (smoothingRadius - distance) * (smoothingRadius - distance) * scaleFactor;   
-}
-
-float nearSmoothingKernelDerivative(float smoothingradius, float distance)
-{
-    if (distance >= smoothingRadius) return 0.0f;
-
-    float scaleFactor = 30 / (pow(smoothingRadius, 5) * M_PI);
-    return -1.0f * (smoothingRadius - distance) * (smoothingRadius - distance) * scaleFactor;
-}
-
-std::pair<float, float> calculateDensities(Particle p, std::vector<Particle>& particles, float smoothingRadius)
-{
-    float density = 0.0f;
-    float nearDensity = 0.0f;
-    const float mass = 100.0f;
-
-    for (Particle other : particles)
-    {
-        float distance = glm::length(glm::vec2(other.position.x - p.position.x, other.position.y - p.position.y));
-        float influence = smoothingKernel(smoothingRadius, distance);
-        float nearInfluence = nearSmoothingKernel(smoothingRadius, distance);
-        density += mass * influence;
-        nearDensity += mass * nearInfluence;
+        for (Particle other : particles)
+        {
+            float distance = glm::length(glm::vec2(other.position.x - particles[i].position.x, other.position.y - particles[i].position.y));
+            float influence = smoothingKernel(distance);
+            density += mass * influence;
+        }
+        densities.push_back(density);
     }
-
-    return std::pair<float, float>(density, nearDensity);
 }
 
-std::pair<float, float> convertDensityToPressure(float density, float nearDensity, float targetDensity, float pressureMultiplier, float nearPressureMultiplier)
+float convertDensityToPressure(float density)
 {
-    float densityError = -density + targetDensity;
+    float densityError = density - targetDensity;
     float pressure = densityError * pressureMultiplier;
-    float nearPressure = nearDensity * nearPressureMultiplier;
-    return std::pair<float, float>(pressure, nearPressure);
+    return pressure;
 }
 
-std::pair<glm::vec2, glm::vec2> calculatePressureForce(int particleIndex, std::vector<Particle>& particles, std::vector<float>& densities, std::vector<float>& nearDensities, float smoothingRadius, float targetDensity, float pressureMultiplier)
+float calculateSharedPressure(float densityA, float densityB)
+{
+    float pressureA = convertDensityToPressure(densityA);
+    float pressureB = convertDensityToPressure(densityB);
+    return (pressureA + pressureB) / 2.0f;
+}
+
+glm::vec2 calculatePressureForce(int particleIndex, std::vector<Particle>& particles, std::vector<float>& densities)
 {
     glm::vec2 pressureForce = glm::vec2(0.0f, 0.0f);
-    glm::vec2 nearPressureForce = glm::vec2(0.0f, 0.0f);
+
+    float maxslope;
+    float distance;
 
     for (int i = 0; i < particles.size(); i++)
     {
         if (particleIndex == i) continue;
 
-        float distance = glm::length(glm::vec2(particles[i].position.x - particles[particleIndex].position.x, particles[i].position.y - particles[particleIndex].position.y));
+        distance = glm::length(glm::vec2(particles[i].position.x - particles[particleIndex].position.x, particles[i].position.y - particles[particleIndex].position.y));
         glm::vec2 direction = glm::vec2(particles[i].position.x - particles[particleIndex].position.x, particles[i].position.y - particles[particleIndex].position.y) / distance;
 
+        
         if (distance == 0) direction = glm::circularRand(1.0f);
-        float slope = smoothingKernelDerivative(smoothingRadius, distance);
+        float slope = smoothingKernelDerivative(distance);
+        maxslope = glm::max(slope, maxslope);
         float density = densities[i];
-        float nearDensity = nearDensities[i];
-        std::pair<float, float> pressurePair = convertDensityToPressure(density, nearDensity, targetDensity, pressureMultiplier, nearPressureMultiplier);
-        pressureForce += -1.0f * pressurePair.first * 100.0f * direction * slope / glm::max(density, 1e-4f);
-
-        // nearPressureForce += -1.0f * pressurePair.second * 100.0f * direction * slope / glm::max(density, 1e-4f);
+        
+        float sharedPressure = calculateSharedPressure(density, densities[i]);
+        pressureForce += 1.0f * sharedPressure * direction * mass * slope / glm::max(density, 1e-4f);
     }
 
-    return std::pair<glm::vec2, glm::vec2>(pressureForce, nearPressureForce);
+    return glm::vec2(pressureForce);
 }
 
 int main(int argc, char* argv[])
@@ -236,7 +226,6 @@ int main(int argc, char* argv[])
     initializeParticles(particles);
 
     std::vector<float> densities;
-    std::vector<float> nearDensities;
 
     glGenVertexArrays(1, &VAO);
     glBindVertexArray(VAO);
@@ -265,6 +254,12 @@ int main(int argc, char* argv[])
     int timeCount = 0;
     float deltaTimeSum = 0.0f;
 
+    std::vector<Particle> predictedParticles;
+    for (Particle p : particles)
+    {
+        predictedParticles.push_back(p);
+    }
+
     while (!glfwWindowShouldClose(window))
     {
         double nowTime = glfwGetTime();
@@ -281,34 +276,37 @@ int main(int argc, char* argv[])
         ImGui_ImplGlfwGL3_NewFrame();
 
         densities.clear();
-        nearDensities.clear();
 
         for (int i = 0; i < particles.size(); i++)
         {
             particles[i].accelerate(glm::vec2(0.0f, -gravity * deltaTime));
-            std::pair<float, float> tempDensity = calculateDensities(particles[i], particles, smoothingRadius);
-            densities.push_back(tempDensity.first);
-            nearDensities.push_back(tempDensity.second);
+            predictedParticles[i].position = particles[i].position + particles[i].velocity * deltaTime;
         }
+
+        calculateDensities(particles, densities);
 
         for (int i = 0; i < particles.size(); i++)
         {
-            std::pair<glm::vec2, glm::vec2> calculatedForce = calculatePressureForce(i, particles, densities, nearDensities, smoothingRadius, targetDensity, pressureMultiplier);
-            glm::vec2 pressureForce = calculatedForce.first;
-            glm::vec2 nearPressureForce = calculatedForce.second;
+            glm::vec2 calculatedForce = calculatePressureForce(i, particles, densities);
+            glm::vec2 pressureForce = calculatedForce;
             glm::vec2 pressureAcceleration = pressureForce / glm::max(densities[i], 1e-4f);
-            glm::vec2 nearPressureAcceleration = nearPressureForce / glm::max(densities[i], 1e-4f);
             particles[i].accelerate(pressureAcceleration * deltaTime);
-            //particles[i].accelerate(nearPressureAcceleration * -deltaTime);
-            std::cout << pressureAcceleration.x * deltaTime << " " << pressureAcceleration.y * deltaTime << " " << deltaTime << std::endl;
-
+            std::cout << "Particle: " << i << std::endl;
+            std::cout << "Position: " << particles[i].position.x << " " << particles[i].position.y << std::endl;
+            std::cout << "Velocity: " << particles[i].velocity.x << " " << particles[i].velocity.y << std::endl;
+            std::cout << "Acceleration: " << pressureAcceleration.x << " " << pressureAcceleration.y << std::endl;
+            std::cout << "Force: " << pressureForce.x << " " << pressureForce.y << std::endl;
+            std::cout << "Density: " << densities[i] << std::endl;
+            std::cout << std::endl;
         }
-        
+
         for (int i = 0; i < particles.size(); i++)
         {
             particles[i].updatePosition(deltaTime);
+            
         }
         std::cout << std::endl;
+        
 
         glBindBuffer(GL_ARRAY_BUFFER, particleVBO);
         glBufferData(GL_ARRAY_BUFFER, particles.size()*sizeof(Particle), particles.data(), GL_DYNAMIC_DRAW);
