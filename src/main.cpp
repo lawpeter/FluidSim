@@ -32,7 +32,7 @@ float nearPressureMultiplier = 1.0f;
 float gravity = 12.0f;
 float Particle::restitution = 0.9f;
 float mass = 1.0f;
-float viscosityStrength = 0.03f;
+float viscosityStrength = 0.3f;
 
 GLFWwindow* loadSim()
 {
@@ -205,7 +205,7 @@ glm::vec2 calculatePressureForce(int particleIndex, std::vector<Particle>& parti
     float currentDensity = densities[particleIndex];
     float currentNearDensity = nearDensities[particleIndex];
     float currentPressure = convertDensityToPressure(currentDensity);
-    float currentNearPressure = convertNearDensityToPressure(currentDensity);
+    float currentNearPressure = convertNearDensityToPressure(currentNearDensity);
 
     glm::vec2 pressureForce(0, 0);
 
@@ -220,7 +220,8 @@ glm::vec2 calculatePressureForce(int particleIndex, std::vector<Particle>& parti
         if (sqrDistanceToOtherParticle > (smoothingRadius * smoothingRadius)) continue;
         
         float distance = sqrt(sqrDistanceToOtherParticle);
-        glm::vec2 dirToOtherParticle = distance > 0 ? offsetToOtherParticle / distance : glm::vec2(0, 1);
+        glm::vec2 dirToOtherParticle = distance > 0 ? offsetToOtherParticle / distance : glm::vec2
+        (0, 1);
 
         float otherDensity = densities[otherParticleIndex];
         float otherNearDensity = nearDensities[otherParticleIndex];
@@ -320,6 +321,11 @@ int main(int argc, char* argv[])
     glEnableVertexAttribArray(1);
     glVertexAttribDivisor(1, 1);
 
+    // particleVelocity > location 1, vec2
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, (void*)offsetof(Particle, velocity));
+    glEnableVertexAttribArray(2);
+    glVertexAttribDivisor(2, 1);
+
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 
     double lastTime = glfwGetTime();
@@ -335,7 +341,7 @@ int main(int argc, char* argv[])
     while (!glfwWindowShouldClose(window) && particles[20].position.x >= 0)
     {
         double nowTime = glfwGetTime();
-        // float deltaTime = (float) nowTime - lastTime;
+        //float deltaTime = (float) nowTime - lastTime;
         float deltaTime = 1 / 120.0f;
         lastTime = nowTime;
 
@@ -390,11 +396,14 @@ int main(int argc, char* argv[])
 
         glDrawArraysInstanced(GL_TRIANGLE_FAN, 0, meshVertices.size(), particles.size());
 
+
         ImGui::Begin("Controls");
-        ImGui::SliderFloat("PressureMultiplier", &pressureMultiplier, 0.5f, 200.0f);
+        ImGui::SliderFloat("PressureMultiplier", &pressureMultiplier, 0.0f, 500.0f);
+        ImGui::SliderFloat("nearPressureMultiplier", &nearPressureMultiplier, 0.0f, 1000.0f);
         ImGui::SliderFloat("Gravity", &gravity, 0.0f, 1000.0f);
-        ImGui::SliderFloat("targetDensity", &targetDensity, 0.0f, 20.0f);
+        ImGui::SliderFloat("targetDensity", &targetDensity, 0.0f, 10.0f);
         ImGui::SliderFloat("restitution", &Particle::restitution, 0.0f, 1.0f);
+        ImGui::SliderFloat("viscosityStrength", &viscosityStrength, 0.0f, 10.0f);
         ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
         ImGui::End();
 
