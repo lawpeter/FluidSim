@@ -34,6 +34,9 @@ float Particle::restitution = 0.9f;
 float mass = 1.0f;
 float viscosityStrength = 0.3f;
 
+int numRows = 30;
+int numColumns = 30;
+
 GLFWwindow* loadSim()
 {
     if (!glfwInit())
@@ -94,34 +97,18 @@ GLuint createShaderProgram(const char* vertexSource, const char* fragmentSource)
     return shaderProgram;
 }
 
-void initializeMesh(std::vector<float>& meshVertices)
-{
-    int resolution = 40;
-    
-    meshVertices.push_back(0.0f);
-    meshVertices.push_back(0.0f);
-
-    for (int i = 0; i <= resolution; i++) {
-        float angle = (2.0f * M_PI * i) / resolution;
-        float x = (cos(angle) * Particle::radius);
-        float y = (sin(angle) * Particle::radius);
-        meshVertices.push_back(x);
-        meshVertices.push_back(y);
-    }
-}
-
 void initializeParticles(std::vector<Particle>& particles)
 {
-    int numParticles = 40;
-
-    for (int i = 0; i < numParticles; i++)
+    
+    for (int i = 0; i < numColumns; i++)
     {
-        for (int j = 0; j < numParticles; j++)
+        for (int j = 0; j < numRows; j++)
         {
-            Particle temp(glm::vec2(50 + (i * 3 * Particle::radius), j * 3 * Particle::radius + 50), glm::vec2(0, 0));
+            Particle temp(glm::vec2(50 + (i * 3 * Particle::radius), (50 + j * 3 * Particle::radius)), glm::vec2(0, 0));
             particles.push_back(temp);
         }
     }
+
 }
 
 float densityKernel(float distance)
@@ -271,6 +258,7 @@ glm::vec2 calculateViscosity(int particleIndex, std::vector<Particle>& particles
 int main(int argc, char* argv[])
 {
     glm::mat4 projection = glm::ortho(0.0f, SCREEN_WIDTH, 0.0f, SCREEN_HEIGHT, -1.0f, 1.0f);
+
     GLFWwindow* window = loadSim();
 
     if (window == NULL)
@@ -282,17 +270,34 @@ int main(int argc, char* argv[])
     ImGui_ImplGlfwGL3_Init(window, true);
     ImGui::StyleColorsDark();
 
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
     GLuint VAO;
-    GLuint meshVBO;
+    GLuint quadVBO;
+    GLuint indexBuffer;
     GLuint particleVBO;
+    GLuint instanceVBO;
 
     GLuint shaderProgram = createShaderProgram(vertexShaderSource, fragmentShaderSource);
 
     GLint projectionUniformLocation = glGetUniformLocation(shaderProgram, "projection");
     glUniformMatrix4fv(projectionUniformLocation, 1, GL_FALSE, &projection[0][0]);
 
-    std::vector<float> meshVertices;
-    initializeMesh(meshVertices);
+    GLint radiusUniformLocation = glGetUniformLocation(shaderProgram, "radius");
+    glUniform1f(radiusUniformLocation, Particle::radius);
+
+    float quadVertices[8] = {
+        -Particle::radius, -Particle::radius, // 0
+         Particle::radius, -Particle::radius, // 1
+         Particle::radius,  Particle::radius, // 2
+        -Particle::radius,  Particle::radius  // 3
+    };
+
+    GLuint indices[6] = {
+        0, 1, 2,
+        2, 3, 0
+    };
 
     std::vector<Particle> particles;
     initializeParticles(particles);
@@ -303,10 +308,15 @@ int main(int argc, char* argv[])
     glGenVertexArrays(1, &VAO);
     glBindVertexArray(VAO);
 
-    glGenBuffers(1, &meshVBO);
-    glBindBuffer(GL_ARRAY_BUFFER, meshVBO);
-    glBufferData(GL_ARRAY_BUFFER, meshVertices.size() * sizeof(float), meshVertices.data(), GL_STATIC_DRAW);
+    glGenBuffers(1, &quadVBO);
+    glBindBuffer(GL_ARRAY_BUFFER, quadVBO);
+    glBufferData(GL_ARRAY_BUFFER, 8 * sizeof(float), quadVertices, GL_STATIC_DRAW);
 
+    glGenBuffers(1, &indexBuffer);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBuffer);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, 6 * sizeof(GLuint), indices, GL_STATIC_DRAW);
+
+    // Mesh position
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
 
@@ -321,12 +331,10 @@ int main(int argc, char* argv[])
     glEnableVertexAttribArray(1);
     glVertexAttribDivisor(1, 1);
 
-    // particleVelocity > location 1, vec2
+    // particleVelocity > location 2, vec2
     glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, (void*)offsetof(Particle, velocity));
     glEnableVertexAttribArray(2);
     glVertexAttribDivisor(2, 1);
-
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
 
     double lastTime = glfwGetTime();
     int timeCount = 0;
@@ -374,28 +382,18 @@ int main(int argc, char* argv[])
             glm::vec2 viscosityForce = calculateViscosity(i, particles, predictedParticles);
             glm::vec2 viscosityAcceleration = viscosityForce / glm::max(densities[i], 1e-4f);
             particles[i].accelerate(viscosityAcceleration * deltaTime);
-
-            /*std::cout << "Particle: " << i << std::endl;
-            std::cout << "Position: " << particles[i].position.x << " " << particles[i].position.y << std::endl;
-            std::cout << "Velocity: " << particles[i].velocity.x << " " << particles[i].velocity.y << std::endl;
-            std::cout << "Acceleration: " << pressureAcceleration.x << " " << pressureAcceleration.y << std::endl;
-            std::cout << "Force: " << pressureForce.x << " " << pressureForce.y << std::endl;
-            std::cout << "Density: " << densities[i] << std::endl;
-            std::cout << std::endl;*/
             
         }
 
         for (int i = 0; i < particles.size(); i++)
         {
             particles[i].updatePosition(deltaTime);
-        }        
+        }
 
         glBindBuffer(GL_ARRAY_BUFFER, particleVBO);
         glBufferData(GL_ARRAY_BUFFER, particles.size()*sizeof(Particle), particles.data(), GL_DYNAMIC_DRAW);
         
-
-        glDrawArraysInstanced(GL_TRIANGLE_FAN, 0, meshVertices.size(), particles.size());
-
+        glDrawElementsInstanced(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr, numRows * numColumns);
 
         ImGui::Begin("Controls");
         ImGui::SliderFloat("PressureMultiplier", &pressureMultiplier, 0.0f, 500.0f);
