@@ -28,9 +28,9 @@
 
 const float smoothingRadius = 4.0f * Particle::radius;
 float targetDensity = 2.75f;
-float pressureMultiplier = 200.0f;
+float pressureMultiplier = 10.0f;
 float nearPressureMultiplier = 1.0f;
-float gravity = 1000.0f;
+float gravity = 98.1f;
 float Particle::restitution = 0.9f;
 float mass = 1.0f;
 float viscosityStrength = 0.3f;
@@ -180,13 +180,8 @@ void checkNearbyParticles(std::vector<int>& results, std::vector<glm::vec2>& cel
     {
         int keyToCheck = keyToHash(cellToCheck + offset) % particles.size();
         int index = startIndexOfCells[keyToCheck];
-        for (int i = 0; i < 5; i++)
-        {
-            std::cout << cellOfParticles[index + i].first << " ";
-        }
-        std::cout << std::endl;
 
-        while (cellOfParticles[index].first == keyToCheck)
+        while (cellOfParticles[index].first == keyToCheck && index < particles.size())
         {
             results.push_back(cellOfParticles[index].second);
             index++;
@@ -325,7 +320,7 @@ void updateParticleCells(std::vector<Particle>& particles, std::vector<std::pair
     for (int i = 0; i < particles.size(); i++)
     {
         int currentKey = cellOfParticles[i].first;
-        int previousKey = (i == 0 ? UINT_MAX : cellOfParticles[i - 1].second);
+        int previousKey = (i == 0 ? UINT_MAX : cellOfParticles[i - 1].first);
         if (currentKey != previousKey)
         {
             startIndexOfCells[currentKey] = i;
@@ -444,10 +439,10 @@ int main(int argc, char* argv[])
 
     while (!glfwWindowShouldClose(window)/* && particles[20].position.x > 0*/)
     {
-        /*double nowTime = glfwGetTime();
+        double nowTime = glfwGetTime();
         float deltaTime = (float) nowTime - lastTime;
-        lastTime = nowTime;*/
-        float deltaTime = 1 / 120.0f;
+        lastTime = nowTime;
+        //float deltaTime = 1 / 120.0f;
 
         deltaTimeSum += deltaTime;
         timeCount++;
@@ -473,7 +468,7 @@ int main(int argc, char* argv[])
 
         for (int i = 0; i < particles.size(); i++)
         {
-            /*checkNearbyParticles(results, cellOffsets, particles[i], particles, cellOfParticles, startIndexOfCells);
+            checkNearbyParticles(results, cellOffsets, particles[i], particles, cellOfParticles, startIndexOfCells);
 
             glm::vec2 pressureForce = calculatePressureForce(i, particles, predictedParticles, densities, nearDensities, results);
             glm::vec2 pressureAcceleration = pressureForce / glm::max(densities[i], 1e-4f);
@@ -481,7 +476,7 @@ int main(int argc, char* argv[])
 
             glm::vec2 viscosityForce = calculateViscosity(i, particles, predictedParticles, results);
             glm::vec2 viscosityAcceleration = viscosityForce / glm::max(densities[i], 1e-4f);
-            particles[i].accelerate(viscosityAcceleration * deltaTime);*/
+            particles[i].accelerate(viscosityAcceleration * deltaTime);
 
             /*std::cout << "Particle: " << i << std::endl;
             std::cout << "Position: " << particles[i].position.x << " " << particles[i].position.y << std::endl;
@@ -490,7 +485,6 @@ int main(int argc, char* argv[])
             std::cout << "Force: " << pressureForce.x << " " << pressureForce.y << std::endl;
             std::cout << "Density: " << densities[i] << std::endl;
             std::cout << std::endl;*/
-            
         }
 
         for (int i = 0; i < particles.size(); i++)
@@ -506,12 +500,12 @@ int main(int argc, char* argv[])
 
 
         ImGui::Begin("Controls");
-        ImGui::SliderFloat("PressureMultiplier", &pressureMultiplier, 0.0f, 500.0f);
-        ImGui::SliderFloat("nearPressureMultiplier", &nearPressureMultiplier, 0.0f, 1000.0f);
-        ImGui::SliderFloat("Gravity", &gravity, 0.0f, 1000.0f);
-        ImGui::SliderFloat("targetDensity", &targetDensity, 0.0f, 10.0f);
+        ImGui::SliderFloat("PressureMultiplier", &pressureMultiplier, 0.0f, 50.0f);
+        ImGui::SliderFloat("nearPressureMultiplier", &nearPressureMultiplier, 0.0f, 100.0f);
+        ImGui::SliderFloat("Gravity", &gravity, 0.0f, 200.0f);
+        ImGui::SliderFloat("targetDensity", &targetDensity, 0.5f, 10.0f);
         ImGui::SliderFloat("restitution", &Particle::restitution, 0.0f, 1.0f);
-        ImGui::SliderFloat("viscosityStrength", &viscosityStrength, 0.0f, 10.0f);
+        ImGui::SliderFloat("viscosityStrength", &viscosityStrength, 0.0f, 100.0f);
         ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
         ImGui::End();
 
