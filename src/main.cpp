@@ -159,8 +159,7 @@ void checkNearbyParticles(std::vector<int>& results, std::vector<int>& cellOffse
         {
             for (int otherParticleIndex : grid[cellToCheck])
             {
-                float squareDistance = glm::dot(particles[otherParticleIndex].position - particle.position, particles[otherParticleIndex].position - particle.position);
-                if (squareDistance < pow(smoothingRadius, 2) && squareDistance != 0) results.push_back(otherParticleIndex);
+                results.push_back(otherParticleIndex);
             }
         }
     }
@@ -289,7 +288,14 @@ void updateParticleCells(std::vector<Particle>& particles, std::vector<std::vect
     for (int i = 0; i < particles.size(); i++)
     {
         int cellIndex = positionToCellArrayIndex(particles[i].position);
-        if (cellIndex < grid.size() && cellIndex >= 0) grid[cellIndex].push_back(i);
+        if (cellIndex < grid.size() && cellIndex >= 0) 
+        {
+            grid[cellIndex].push_back(i);
+        }
+        else
+        {
+            std::cout << "ROGUE PARTICLE" << std::endl;
+        }
     }
 }
 
@@ -435,7 +441,7 @@ int main(int argc, char* argv[])
 
     glfwSetKeyCallback(window, key_callback);
 
-    while (!glfwWindowShouldClose(window)/* && particles[20].position.x > 0*/)
+    while (!glfwWindowShouldClose(window))
     {
         double nowTime = glfwGetTime();
         float deltaTime = (float) nowTime - lastTime;
