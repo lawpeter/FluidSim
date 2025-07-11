@@ -15,13 +15,15 @@
 
 
 const float smoothingRadius = 4.0f * Particle::radius;
-float targetDensity = 1.75f;
+float targetDensity = 2.75f;
 float pressureMultiplier = 10.0f;
 float nearPressureMultiplier = 1.0f;
 float gravity = 98.1f;
 float Particle::restitution = 0.9f;
 float mass = 1.0f;
 float viscosityStrength = 100.0f;
+float mouseInteractionRadius = 200.0f;
+float mouseForceStrength = 500.0f;
 
 bool spacePressed = true;
 bool periodPressed = false;
@@ -29,6 +31,11 @@ bool periodHeld = false;
 bool commaPressed = false;
 bool rPressed = false;
 int frameCount = 0;
+
+float cursorX;
+float cursorY;
+bool leftMousePressed = false;
+bool rightMousePressed = false;
 
 int numRows = 50;
 int numColumns = 50;
@@ -340,6 +347,31 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
     }
 }
 
+void cursor_position_callback(GLFWwindow* window, double xpos, double ypos) {
+    cursorX = xpos;
+    cursorY = ypos;
+}
+
+void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
+{
+    if (button == GLFW_MOUSE_BUTTON_LEFT)
+    {
+        if (action == GLFW_PRESS)
+            leftMousePressed = true;
+        else if (action == GLFW_RELEASE)
+            leftMousePressed = false;
+    }
+    else if (button == GLFW_MOUSE_BUTTON_RIGHT)
+    {
+        if (action == GLFW_PRESS)
+        {
+            rightMousePressed = true;
+        }
+        else if (action == GLFW_RELEASE)
+            rightMousePressed = false;
+    }
+}
+
 int main(int argc, char* argv[])
 {
     glm::mat4 projection = glm::ortho(0.0f, SCREEN_WIDTH, 0.0f, SCREEN_HEIGHT, -1.0f, 1.0f);
@@ -440,6 +472,8 @@ int main(int argc, char* argv[])
     }
 
     glfwSetKeyCallback(window, key_callback);
+    glfwSetCursorPosCallback(window, cursor_position_callback);
+    glfwSetMouseButtonCallback(window, mouse_button_callback);
 
     while (!glfwWindowShouldClose(window))
     {
@@ -448,6 +482,10 @@ int main(int argc, char* argv[])
         lastTime = nowTime;
         //float deltaTime = 1 / 240.0f;
 
+        deltaTimeSum += deltaTime;
+        timeCount++;
+
+        // Keypress handling
         if (commaPressed)
             frameCount++;
         
@@ -485,8 +523,7 @@ int main(int argc, char* argv[])
             rPressed = false;
         }
 
-        deltaTimeSum += deltaTime;
-        timeCount++;
+
 
         // Clear screen each frame
         glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
@@ -510,16 +547,43 @@ int main(int argc, char* argv[])
 
         for (int i = 0; i < particles.size(); i++)
         {
+            // Populate results with particles to check
             checkNearbyParticles(results, cellOffsets, particles[i], particles, grid);
 
+            // Apply pressure forces
             glm::vec2 pressureForce = calculatePressureForce(i, particles, predictedParticles, densities, nearDensities, results);
             glm::vec2 pressureAcceleration = pressureForce / glm::max(densities[i], 1e-4f);
             particles[i].accelerate(pressureAcceleration * deltaTime);
 
+            // Apply viscosity forces
             glm::vec2 viscosityForce = calculateViscosity(i, particles, predictedParticles, results);
             glm::vec2 viscosityAcceleration = viscosityForce / glm::max(densities[i], 1e-4f);
             particles[i].accelerate(viscosityAcceleration * deltaTime);
-            
+
+            // Mouse interaction
+            if (leftMousePressed || rightMousePressed)
+            {
+                glm::vec2 cursorPosition(cursorX, SCREEN_HEIGHT - cursorY);
+                glm::vec2 directionToCursor = cursorPosition - particles[i].position;
+                float distance = glm::length(directionToCursor);
+                
+                if (distance > 1e-5f && distance < mouseInteractionRadius)
+                {
+                    glm::vec2 normalizedDireciton = directionToCursor / distance;
+                    
+                    float distanceFactor = 1.0f - (distance / mouseInteractionRadius);
+                    float strength = mouseForceStrength * distanceFactor; // Strength falls off as you get further from the cursor
+                    
+                    if (leftMousePressed)
+                    {
+                        particles[i].accelerate(-normalizedDireciton * strength * deltaTime);
+                    }
+                    if (rightMousePressed)
+                    {
+                        particles[i].accelerate(normalizedDireciton * strength * deltaTime);
+                    }
+                }
+            }
         }
 
         for (int i = 0; i < particles.size(); i++)
@@ -541,7 +605,6 @@ int main(int argc, char* argv[])
         ImGui::SliderFloat("viscosityStrength", &viscosityStrength, 0.0f, 100.0f);
         ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
         ImGui::End();
-
 
         ImGui::Render();
         ImGui_ImplGlfwGL3_RenderDrawData(ImGui::GetDrawData());
