@@ -10,8 +10,8 @@
 #include "vertex.glsl"
 #include "particle.cpp"
 
-#define cellsWidth ceil(SCREEN_WIDTH/smoothingRadius)
-#define cellsHeight ceil(SCREEN_HEIGHT/smoothingRadius)
+#define gridWidth ceil(SCREEN_WIDTH/smoothingRadius)
+#define gridHeight ceil(SCREEN_HEIGHT/smoothingRadius)
 
 
 const float smoothingRadius = 4.0f * Particle::radius;
@@ -103,7 +103,6 @@ void initializeParticles(std::vector<Particle>& particles)
             particles.push_back(temp);
         }
     }
-
 }
 
 float densityKernel(float distance)
@@ -143,7 +142,7 @@ int positionToCellArrayIndex(glm::vec2 position)
     int cellX = (int) (position.x / smoothingRadius);
     int cellY = (int) (position.y / smoothingRadius);
 
-    return (cellY * ceil(SCREEN_WIDTH / smoothingRadius)) + cellX;
+    return (cellY * gridWidth) + cellX;
 }
 
 void checkNearbyParticles(std::vector<int>& results, std::vector<int>& cellOffsets, Particle& particle, std::vector<Particle>& particles, std::vector<std::vector<int>>& grid)
@@ -164,8 +163,6 @@ void checkNearbyParticles(std::vector<int>& results, std::vector<int>& cellOffse
                 if (squareDistance < pow(smoothingRadius, 2) && squareDistance != 0) results.push_back(otherParticleIndex);
             }
         }
-
-
     }
 }
 
@@ -287,7 +284,7 @@ glm::vec2 calculateViscosity(int particleIndex, std::vector<Particle>& particles
 void updateParticleCells(std::vector<Particle>& particles, std::vector<std::vector<int>>& grid)
 {
     grid.clear();
-    grid.resize(cellsWidth * cellsHeight);
+    grid.resize(gridWidth * gridHeight);
 
     for (int i = 0; i < particles.size(); i++)
     {
@@ -301,12 +298,12 @@ void constructCellOffsets(std::vector<int>& cellOffsets)
     cellOffsets.push_back(-1);
     cellOffsets.push_back(0);
     cellOffsets.push_back(1);
-    cellOffsets.push_back(-cellsWidth - 1);
-    cellOffsets.push_back(-cellsWidth);
-    cellOffsets.push_back(-cellsWidth + 1);
-    cellOffsets.push_back(cellsWidth - 1);
-    cellOffsets.push_back(cellsWidth);
-    cellOffsets.push_back(cellsWidth + 1);
+    cellOffsets.push_back(-gridWidth - 1);
+    cellOffsets.push_back(-gridWidth);
+    cellOffsets.push_back(-gridWidth + 1);
+    cellOffsets.push_back(gridWidth - 1);
+    cellOffsets.push_back(gridWidth);
+    cellOffsets.push_back(gridWidth + 1);
 }
 
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
@@ -385,7 +382,7 @@ int main(int argc, char* argv[])
     initializeParticles(particles);
 
     std::vector<std::vector<int>> grid;
-    grid.resize(cellsWidth * cellsHeight);
+    grid.resize(gridWidth * gridHeight);
 
     std::vector<int> cellOffsets;
     constructCellOffsets(cellOffsets);
@@ -538,7 +535,6 @@ int main(int argc, char* argv[])
         ImGui::SliderFloat("viscosityStrength", &viscosityStrength, 0.0f, 100.0f);
         ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
         ImGui::End();
-
 
 
         ImGui::Render();
