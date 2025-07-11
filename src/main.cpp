@@ -10,33 +10,28 @@
 #include "vertex.glsl"
 #include "particle.cpp"
 
-#ifndef DIMENSIONS
+#define gridWidth ceil(SCREEN_WIDTH/smoothingRadius)
+#define gridHeight ceil(SCREEN_HEIGHT/smoothingRadius)
 
-#define DIMENSIONS
-#define SCREEN_WIDTH 800.0f
-#define SCREEN_HEIGHT 800.0f
-
-#endif
-
-#ifndef INCLUDE
-
-#define INCLUDE
-#include <iostream>
-#include <glm/glm.hpp>
-
-#endif
 
 const float smoothingRadius = 4.0f * Particle::radius;
-float targetDensity = 2.75f;
+float targetDensity = 1.75f;
 float pressureMultiplier = 10.0f;
 float nearPressureMultiplier = 1.0f;
 float gravity = 98.1f;
 float Particle::restitution = 0.9f;
 float mass = 1.0f;
-float viscosityStrength = 0.3f;
+float viscosityStrength = 100.0f;
 
-int numRows = 30;
-int numColumns = 30;
+bool spacePressed = true;
+bool periodPressed = false;
+bool periodHeld = false;
+bool commaPressed = false;
+bool rPressed = false;
+int frameCount = 0;
+
+int numRows = 50;
+int numColumns = 50;
 
 GLFWwindow* loadSim()
 {
@@ -100,16 +95,14 @@ GLuint createShaderProgram(const char* vertexSource, const char* fragmentSource)
 
 void initializeParticles(std::vector<Particle>& particles)
 {
-    
     for (int i = 0; i < numColumns; i++)
     {
         for (int j = 0; j < numRows; j++)
         {
-            Particle temp(glm::vec2(50 + (i * 3 * Particle::radius), (50 + j * 3 * Particle::radius)), glm::vec2(0, 0));
+            Particle temp(glm::vec2(50 + (i * 2.5f * Particle::radius), (50 + j * 2.5f * Particle::radius)), glm::vec2(0, 0));
             particles.push_back(temp);
         }
     }
-
 }
 
 float densityKernel(float distance)
@@ -144,39 +137,36 @@ float nearDensityKernelDerivative(float distance)
     return -(smoothingRadius - distance) * (smoothingRadius - distance) * scaleFactor;
 }
 
-glm::vec2 positionToCoordinate(glm::vec2 position)
+int positionToCellArrayIndex(glm::vec2 position)
 {
     int cellX = (int) (position.x / smoothingRadius);
     int cellY = (int) (position.y / smoothingRadius);
 
-    return glm::vec2(cellX, cellY);
+    return (cellY * gridWidth) + cellX;
 }
 
-int keyToHash(glm::vec2 cellKey)
-{
-    return ((cellKey.x * 15823) + (cellKey.y * 9737333));
-}
-
-void checkNearbyParticles(std::vector<int>& results, std::vector<glm::vec2>& cellOffsets, Particle& p, std::vector<Particle>& particles, std::vector<std::pair<int, int>>& cellOfParticles, std::vector<int>& startIndexOfCells)
+void checkNearbyParticles(std::vector<int>& results, std::vector<int>& cellOffsets, Particle& particle, std::vector<Particle>& particles, std::vector<std::vector<int>>& grid)
 {
     results.clear();
 
-    glm::vec2 cellToCheck = positionToCoordinate(p.position);
+    int cell = positionToCellArrayIndex(particle.position);
 
-    for (glm::vec2 offset : cellOffsets)
+    for (int offset : cellOffsets)
     {
-        int keyToCheck = keyToHash(cellToCheck + offset) % particles.size();
-        int index = startIndexOfCells[keyToCheck];
+        int cellToCheck = cell + offset;
 
-        while (cellOfParticles[index].first == keyToCheck && index < particles.size())
+        if (cellToCheck < grid.size() && cellToCheck >= 0)
         {
-            results.push_back(cellOfParticles[index].second);
-            index++;
+            for (int otherParticleIndex : grid[cellToCheck])
+            {
+                float squareDistance = glm::dot(particles[otherParticleIndex].position - particle.position, particles[otherParticleIndex].position - particle.position);
+                if (squareDistance < pow(smoothingRadius, 2) && squareDistance != 0) results.push_back(otherParticleIndex);
+            }
         }
     }
 }
 
-void calculateDensities(std::vector<Particle>& particles, std::vector<Particle>& predictedParticles, std::vector<float>& densities, std::vector<float>& nearDensities, std::vector<int>& results, std::vector<glm::vec2>& cellOffsets, std::vector<std::pair<int, int>>& cellOfParticles, std::vector<int>& startIndexOfCells)
+void calculateDensities(std::vector<Particle>& particles, std::vector<Particle>& predictedParticles, std::vector<float>& densities, std::vector<float>& nearDensities, std::vector<int>& results, std::vector<int>& cellOffsets, std::vector<std::vector<int>>& grid)
 {
     for (int currentParticleIndex = 0; currentParticleIndex < particles.size(); currentParticleIndex++)
     {  
@@ -185,7 +175,7 @@ void calculateDensities(std::vector<Particle>& particles, std::vector<Particle>&
         float density = 0.0f;
         float nearDensity = 0.0f;
 
-        checkNearbyParticles(results, cellOffsets, predictedParticles[currentParticleIndex], predictedParticles, cellOfParticles, startIndexOfCells);
+        checkNearbyParticles(results, cellOffsets, predictedParticles[currentParticleIndex], predictedParticles, grid);
 
         for (int otherParticleIndex : results)
         {
@@ -291,41 +281,57 @@ glm::vec2 calculateViscosity(int particleIndex, std::vector<Particle>& particles
     return viscosityForce * viscosityStrength;
 }
 
-void updateParticleCells(std::vector<Particle>& particles, std::vector<std::pair<int, int>>& cellOfParticles, std::vector<int>& startIndexOfCells)
+void updateParticleCells(std::vector<Particle>& particles, std::vector<std::vector<int>>& grid)
 {
-    for (int i = 0; i < particles.size(); i++)
-    {
-        glm::vec2 cellKey = positionToCoordinate(particles[i].position);
-        int cellHash = (keyToHash(cellKey) % particles.size());
-
-        cellOfParticles[i] = std::pair<int, int>(cellHash, i);
-        startIndexOfCells[i] = UINT_MAX;
-    }
-
-    std::sort(cellOfParticles.begin(), cellOfParticles.end());
+    grid.clear();
+    grid.resize(gridWidth * gridHeight);
 
     for (int i = 0; i < particles.size(); i++)
     {
-        int currentKey = cellOfParticles[i].first;
-        int previousKey = (i == 0 ? UINT_MAX : cellOfParticles[i - 1].first);
-        if (currentKey != previousKey)
-        {
-            startIndexOfCells[currentKey] = i;
-        }
+        int cellIndex = positionToCellArrayIndex(particles[i].position);
+        if (cellIndex < grid.size() && cellIndex >= 0) grid[cellIndex].push_back(i);
     }
 }
 
-void constructCellOffsets(std::vector<glm::vec2>& cellOffsets)
+void constructCellOffsets(std::vector<int>& cellOffsets)
 {
-    cellOffsets.push_back(glm::vec2(-1, -1));
-    cellOffsets.push_back(glm::vec2(0, -1));
-    cellOffsets.push_back(glm::vec2(1, -1));
-    cellOffsets.push_back(glm::vec2(-1, 0));
-    cellOffsets.push_back(glm::vec2(0, 0));
-    cellOffsets.push_back(glm::vec2(1, 0));
-    cellOffsets.push_back(glm::vec2(-1, 1));
-    cellOffsets.push_back(glm::vec2(0, 1));
-    cellOffsets.push_back(glm::vec2(1, 1));
+    cellOffsets.push_back(-1);
+    cellOffsets.push_back(0);
+    cellOffsets.push_back(1);
+    cellOffsets.push_back(-gridWidth - 1);
+    cellOffsets.push_back(-gridWidth);
+    cellOffsets.push_back(-gridWidth + 1);
+    cellOffsets.push_back(gridWidth - 1);
+    cellOffsets.push_back(gridWidth);
+    cellOffsets.push_back(gridWidth + 1);
+}
+
+void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
+{
+    if (key == GLFW_KEY_SPACE && action == GLFW_PRESS)
+    {
+        spacePressed = !spacePressed;
+    }
+    if (key == GLFW_KEY_PERIOD && action == GLFW_PRESS)
+    {
+        periodPressed = true;
+    }
+    if (key == GLFW_KEY_PERIOD && action == GLFW_REPEAT)
+    {
+        periodHeld = true;
+    }
+    if (key == GLFW_KEY_PERIOD && action == GLFW_RELEASE)
+    {
+        periodHeld = false;
+    }
+    if (key == GLFW_KEY_COMMA && action == GLFW_PRESS)
+    {
+        commaPressed = true;
+    }
+    if (key == GLFW_KEY_R && action == GLFW_PRESS)
+    {
+        rPressed = true;
+    }
 }
 
 int main(int argc, char* argv[])
@@ -372,27 +378,13 @@ int main(int argc, char* argv[])
         2, 3, 0
     };
 
-    /*float quadPositions[8] = {
-        -0.5f, -0.5f, // 0
-         0.5f, -0.5f, // 1
-         0.5f,  0.5f, // 2
-        -0.5f,  0.5f  // 3
-    };
-
-    GLuint indices[6] = {
-        0, 1, 2,
-        2, 3, 0
-    };*/
-
     std::vector<Particle> particles;
     initializeParticles(particles);
 
-    std::vector<std::pair<int, int>> cellOfParticles;
-    std::vector<int> startIndexOfCells;
-    cellOfParticles.resize(particles.size());
-    startIndexOfCells.resize(particles.size());
+    std::vector<std::vector<int>> grid;
+    grid.resize(gridWidth * gridHeight);
 
-    std::vector<glm::vec2> cellOffsets;
+    std::vector<int> cellOffsets;
     constructCellOffsets(cellOffsets);
 
     std::vector<int> results;
@@ -441,12 +433,51 @@ int main(int argc, char* argv[])
         predictedParticles.push_back(p);
     }
 
+    glfwSetKeyCallback(window, key_callback);
+
     while (!glfwWindowShouldClose(window)/* && particles[20].position.x > 0*/)
     {
         double nowTime = glfwGetTime();
         float deltaTime = (float) nowTime - lastTime;
         lastTime = nowTime;
-        //float deltaTime = 1 / 120.0f;
+        //float deltaTime = 1 / 240.0f;
+
+        if (commaPressed)
+            frameCount++;
+        
+        if (spacePressed)
+        {
+            deltaTime *= 0;
+
+            if (periodHeld)
+            {
+                deltaTime = 1 / 240.0f;
+            }
+            else if (periodPressed)
+            {
+                deltaTime = 1 / 240.0f;
+                periodPressed = false;
+            }
+        }
+
+        if (commaPressed)
+        {
+            if (frameCount < 10)
+                spacePressed = false;
+            else
+            {
+                spacePressed = true;
+                frameCount = 0;
+                commaPressed = false;
+            }
+        }
+
+        if (rPressed)
+        {
+            particles.clear();
+            initializeParticles(particles);
+            rPressed = false;
+        }
 
         deltaTimeSum += deltaTime;
         timeCount++;
@@ -460,19 +491,20 @@ int main(int argc, char* argv[])
         densities.clear();
         nearDensities.clear();
 
-        updateParticleCells(particles, cellOfParticles, startIndexOfCells);
-
+        
         for (int i = 0; i < particles.size(); i++)
         {
             particles[i].accelerate(glm::vec2(0.0f, -gravity * deltaTime));
             predictedParticles[i].position = particles[i].position + particles[i].velocity * deltaTime;
         }
+        
+        updateParticleCells(predictedParticles, grid);
 
-        calculateDensities(particles, predictedParticles, densities, nearDensities, results, cellOffsets, cellOfParticles, startIndexOfCells);
+        calculateDensities(particles, predictedParticles, densities, nearDensities, results, cellOffsets, grid);
 
         for (int i = 0; i < particles.size(); i++)
         {
-            checkNearbyParticles(results, cellOffsets, particles[i], particles, cellOfParticles, startIndexOfCells);
+            checkNearbyParticles(results, cellOffsets, particles[i], particles, grid);
 
             glm::vec2 pressureForce = calculatePressureForce(i, particles, predictedParticles, densities, nearDensities, results);
             glm::vec2 pressureAcceleration = pressureForce / glm::max(densities[i], 1e-4f);
@@ -504,14 +536,15 @@ int main(int argc, char* argv[])
         ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
         ImGui::End();
 
+
         ImGui::Render();
         ImGui_ImplGlfwGL3_RenderDrawData(ImGui::GetDrawData());
         glfwSwapBuffers(window);
         glfwPollEvents();
-        
+
     }
 
-    std::cout << "Average FPS: " << 1 / (deltaTimeSum / timeCount) << std::endl;
+    std::cout << "Average FPS: " << 1 / (deltaTimeSum / timeCount) << " " << timeCount << std::endl;
 
     ImGui_ImplGlfwGL3_Shutdown();
     ImGui::DestroyContext();

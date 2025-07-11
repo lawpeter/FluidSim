@@ -1,19 +1,9 @@
 #include <utility>
-
-#ifndef DIMENSIONS
-
-#define DIMENSIONS
-#define SCREEN_WIDTH 800.0f
-#define SCREEN_HEIGHT 800.0f
-
-#endif
-#ifndef INCLUDE
-
-#define INCLUDE
 #include <iostream>
 #include <glm/glm.hpp>
 
-#endif
+#define SCREEN_WIDTH 1000.0f
+#define SCREEN_HEIGHT 800.0f
 
 class Particle 
 {
