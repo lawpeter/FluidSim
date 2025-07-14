@@ -8,7 +8,9 @@
 #include <limits.h>
 #include "fragment.glsl"
 #include "vertex.glsl"
-#include "particle.cpp"
+#include <iostream>
+#include "particle.hpp"
+#include <vector>
 
 #define gridWidth ceil(SCREEN_WIDTH/smoothingRadius)
 #define gridHeight ceil(SCREEN_HEIGHT/smoothingRadius)
