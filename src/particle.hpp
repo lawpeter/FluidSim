@@ -26,7 +26,9 @@ public:
     {
         position.x += velocity.x * deltaTime;
         position.y += velocity.y * deltaTime;
-
+    }
+    void doCollison()
+    {
         if (position.x - radius < 0.0f)
         {
             position.x = radius;
