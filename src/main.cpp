@@ -8,7 +8,9 @@
 #include <limits.h>
 #include "fragment.glsl"
 #include "vertex.glsl"
-#include "particle.cpp"
+#include <iostream>
+#include "particle.hpp"
+#include <vector>
 
 #define gridWidth ceil(SCREEN_WIDTH/smoothingRadius)
 #define gridHeight ceil(SCREEN_HEIGHT/smoothingRadius)
@@ -589,6 +591,13 @@ int main(int argc, char* argv[])
         for (int i = 0; i < particles.size(); i++)
         {
             particles[i].updatePosition(deltaTime);
+
+            int gridIndex = positionToCellArrayIndex(particles[i].position);
+
+            if (gridIndex < gridWidth || gridIndex > gridWidth * (gridHeight - 1) || gridIndex % (int) gridWidth == 0 || gridIndex % (int) gridWidth == gridWidth - 1)
+            {
+                particles[i].doCollison();
+            }
         }
 
         glBindBuffer(GL_ARRAY_BUFFER, particleVBO);

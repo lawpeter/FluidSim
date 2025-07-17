@@ -18,10 +18,10 @@ const char* fragmentShaderSource = R"glsl(
         vec4 red = vec4(0.87, 0.24, 0.24, 1.0);
         vec4 white = vec4(1.0, 1.0, 1.0, 1.0);
 
-        /*if (particleSpeed < 0.5) FragColor = mix(blue, yellow, 2.0 * particleSpeed);
-        else FragColor = mix(yellow, red, 2.0 * (particleSpeed - 0.5f));*/
+        if (particleSpeed < 0.5) FragColor = mix(blue, yellow, 2.0 * particleSpeed);
+        else FragColor = mix(yellow, red, 2.0 * (particleSpeed - 0.5f));
 
         vec4 baseColor = mix(deepBlue, white, particleSpeed);
-        FragColor = vec4(baseColor.rgb, alpha);
+        //FragColor = vec4(baseColor.rgb, alpha);
     }
 )glsl";
