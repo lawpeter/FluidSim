@@ -13,6 +13,8 @@ private:
 public:
     glm::vec2 position;
     glm::vec2 velocity;
+    float density;
+    float padding = 0.0f;
     static constexpr float radius = 5.0f;
     static float restitution;
     Particle(glm::vec2 position, glm::vec2 velocity) : 

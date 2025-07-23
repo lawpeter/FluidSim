@@ -6,11 +6,12 @@
 #include <imgui/imgui.h>
 #include <imgui/imgui_impl_glfw_gl3.h>
 #include <limits.h>
+#include <iostream>
+#include <vector>
 #include "fragment.glsl"
 #include "vertex.glsl"
-#include <iostream>
+#include "compute.glsl"
 #include "particle.hpp"
-#include <vector>
 
 #define gridWidth ceil(SCREEN_WIDTH/smoothingRadius)
 #define gridHeight ceil(SCREEN_HEIGHT/smoothingRadius)
@@ -19,7 +20,6 @@
 const float smoothingRadius = 4.0f * Particle::radius;
 float targetDensity = 2.75f;
 float pressureMultiplier = 10.0f;
-float nearPressureMultiplier = 1.0f;
 float gravity = 98.1f;
 float Particle::restitution = 0.9f;
 float mass = 1.0f;
@@ -27,7 +27,7 @@ float viscosityStrength = 100.0f;
 float mouseInteractionRadius = 200.0f;
 float mouseForceStrength = 500.0f;
 
-bool spacePressed = true;
+bool spacePressed = false;
 bool periodPressed = false;
 bool periodHeld = false;
 bool commaPressed = false;
@@ -50,10 +50,10 @@ GLFWwindow* loadSim()
     }
 
     glfwWindowHint(GLFW_SAMPLES, 4);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-
+  
     GLFWwindow* window;
     window = glfwCreateWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "FluidSim", NULL, NULL);
 
@@ -96,9 +96,6 @@ GLuint createShaderProgram(const char* vertexSource, const char* fragmentSource)
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
 
-    // Activate the shader program
-    glUseProgram(shaderProgram);
-
     return shaderProgram;
 }
 
@@ -128,22 +125,6 @@ float densityKernelDerivative(float distance)
 
     float scaleFactor = (pow(smoothingRadius, 2) * M_PI) / 12.0f;
     return -(smoothingRadius - distance) * scaleFactor;
-}
-
-float nearDensityKernel(float distance)
-{
-    if (distance >= smoothingRadius) return 0.0f;
-
-    float scaleFactor = 10.0f / (M_PI * pow(smoothingRadius, 5));
-    return (smoothingRadius - distance) * (smoothingRadius - distance) * (smoothingRadius - distance) * scaleFactor;
-}
-
-float nearDensityKernelDerivative(float distance)
-{
-    if (distance >= smoothingRadius) return 0.0f;
-
-    float scaleFactor = 30.0f / (M_PI * pow(smoothingRadius, 5));
-    return -(smoothingRadius - distance) * (smoothingRadius - distance) * scaleFactor;
 }
 
 int positionToCellArrayIndex(glm::vec2 position)
@@ -176,14 +157,13 @@ void checkNearbyParticles(std::vector<int>& results, std::vector<int>& cellOffse
     }
 }
 
-void calculateDensities(std::vector<Particle>& particles, std::vector<Particle>& predictedParticles, std::vector<float>& densities, std::vector<float>& nearDensities, std::vector<int>& results, std::vector<int>& cellOffsets, std::vector<std::vector<int>>& grid)
+void calculateDensities(std::vector<Particle>& particles, std::vector<Particle>& predictedParticles, std::vector<int>& results, std::vector<int>& cellOffsets, std::vector<std::vector<int>>& grid)
 {
     for (int currentParticleIndex = 0; currentParticleIndex < particles.size(); currentParticleIndex++)
     {  
         glm::vec2 currentParticlePosition = predictedParticles[currentParticleIndex].position;
 
         float density = 0.0f;
-        float nearDensity = 0.0f;
 
         // Populates the results array with nearby particles to check
         checkNearbyParticles(results, cellOffsets, predictedParticles[currentParticleIndex], predictedParticles, grid);
@@ -199,15 +179,12 @@ void calculateDensities(std::vector<Particle>& particles, std::vector<Particle>&
 
             float distance = sqrt(sqrDistanceToOtherParticle);
             float influence = densityKernel(distance);
-            float nearInfluence = nearDensityKernel(distance);
 
             density += mass * influence;
-            nearDensity += mass * nearInfluence;
         }
 
-        // Add calculated density for the particle to the densities array (with the same index as the particle)
-        densities.push_back(density);
-        nearDensities.push_back(nearDensity);
+        // Add calculated density for the particle to it's density
+        particles[currentParticleIndex].density = density;
     }
 }
 
@@ -218,18 +195,11 @@ float convertDensityToPressure(float density)
     return pressure;
 }
 
-float convertNearDensityToPressure(float nearDensity)
-{
-	return nearPressureMultiplier * nearDensity;
-}
-
-glm::vec2 calculatePressureForce(int particleIndex, std::vector<Particle>& particles, std::vector<Particle>& predictedParticles, std::vector<float>& densities, std::vector<float>& nearDensities, std::vector<int>& results)
+glm::vec2 calculatePressureForce(int particleIndex, std::vector<Particle>& particles, std::vector<Particle>& predictedParticles, std::vector<int>& results)
 {   
     glm::vec2 currentParticlePosition = predictedParticles[particleIndex].position;
-    float currentDensity = densities[particleIndex];
-    float currentNearDensity = nearDensities[particleIndex];
+    float currentDensity = particles[particleIndex].density;
     float currentPressure = convertDensityToPressure(currentDensity);
-    float currentNearPressure = convertNearDensityToPressure(currentNearDensity);
 
     glm::vec2 pressureForce(0, 0);
 
@@ -252,17 +222,13 @@ glm::vec2 calculatePressureForce(int particleIndex, std::vector<Particle>& parti
         glm::vec2 dirToOtherParticle = distance > 0 ? offsetToOtherParticle / distance : glm::vec2
         (0, 1);
 
-        float otherDensity = densities[otherParticleIndex];
-        float otherNearDensity = nearDensities[otherParticleIndex];
+        float otherDensity = particles[otherParticleIndex].density;
         float otherPressure = convertDensityToPressure(otherDensity);
-        float otherNearPressure = convertNearDensityToPressure(otherNearDensity);
     
         // Apply the average of the two pressures to each particle
         float sharedPressure = (currentPressure + otherPressure) * 0.5f;
-        float sharedNearPressure = (currentNearPressure + otherNearPressure) * 0.5f;
 
         pressureForce += dirToOtherParticle * densityKernelDerivative(distance) * sharedPressure / otherDensity;
-        pressureForce += dirToOtherParticle * nearDensityKernelDerivative(distance) * sharedNearPressure / otherNearDensity;
     }
 
     return pressureForce;
@@ -410,18 +376,47 @@ int main(int argc, char* argv[])
     GLuint VAO;
     GLuint quadVBO;
     GLuint indexBuffer;
-    GLuint particleVBO;
+    GLuint SSBO;
+    //GLuint particleVBO;
     GLuint instanceVBO;
 
     // Call method that creates and compiles shaders with shader sources that are #included from external files
-    GLuint shaderProgram = createShaderProgram(vertexShaderSource, fragmentShaderSource);
+    GLuint renderingShaderProgram = createShaderProgram(vertexShaderSource, fragmentShaderSource);
+    
+    //compile shader
+    GLuint computeShader = glCreateShader(GL_COMPUTE_SHADER);
+    glShaderSource(computeShader, 1, &computeShaderSource, NULL);
+    glCompileShader(computeShader);
+
+    int result;
+    glGetShaderiv(computeShader, GL_LINK_STATUS, &result);
+    if (result == GL_FALSE)
+    {
+        int length;
+        glGetShaderiv(computeShader, GL_INFO_LOG_LENGTH, &length);
+        char message[length];
+        glGetShaderInfoLog(computeShader, length, &length, message);
+        std::cout << message << std::endl;
+    }
+
+    //create program and attach
+    GLuint computeShaderProgram = glCreateProgram();
+    glAttachShader(computeShaderProgram, computeShader);
+    //link
+    glLinkProgram(computeShaderProgram);
+    glValidateProgram(computeShaderProgram);
+    glDeleteShader(computeShader);
+
+
+    // Activate the shader program
+    glUseProgram(renderingShaderProgram);
 
     // Place projection matrix inside shader uniform
-    GLint projectionUniformLocation = glGetUniformLocation(shaderProgram, "projection");
+    GLint projectionUniformLocation = glGetUniformLocation(renderingShaderProgram, "projection");
     glUniformMatrix4fv(projectionUniformLocation, 1, GL_FALSE, &projection[0][0]);
 
     // Place radius inside shader uniform
-    GLint radiusUniformLocation = glGetUniformLocation(shaderProgram, "radius");
+    GLint radiusUniformLocation = glGetUniformLocation(renderingShaderProgram, "radius");
     glUniform1f(radiusUniformLocation, Particle::radius);
 
     // Construct the corners of our quad used for rendering
@@ -450,9 +445,6 @@ int main(int argc, char* argv[])
 
     std::vector<int> results;
 
-    std::vector<float> densities;
-    std::vector<float> nearDensities;
-
     glGenVertexArrays(1, &VAO);
     glBindVertexArray(VAO);
 
@@ -464,26 +456,29 @@ int main(int argc, char* argv[])
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBuffer);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, 6 * sizeof(GLuint), indices, GL_STATIC_DRAW);
 
+    glGenBuffers(1, &SSBO);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, SSBO);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, particles.size() * sizeof(Particle), particles.data(), GL_STATIC_DRAW);
+
     // Assign quad position instructions for vertex shader at layout position 0
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
 
-    glGenBuffers(1, &particleVBO);
+    /*glGenBuffers(1, &particleVBO);
     glBindBuffer(GL_ARRAY_BUFFER, particleVBO);
-    glBufferData(GL_ARRAY_BUFFER, particles.size() * sizeof(Particle), particles.data(), GL_DYNAMIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, particles.size() * sizeof(Particle), particles.data(), GL_DYNAMIC_DRAW);*/
 
-    // Shader's step size when rendering particles
+    /*// Shader's step size when rendering particles
     GLsizei stride = sizeof(Particle);
 
     // Assigns vec2 particle position data to particlePosition in shader at location 1
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, stride, (void*)offsetof(Particle, position));
     glEnableVertexAttribArray(1);
     glVertexAttribDivisor(1, 1);
 
     // Assigns vec2 particle velocity data to particleVelocity in shader at location 2
     glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, (void*)offsetof(Particle, velocity));
     glEnableVertexAttribArray(2);
-    glVertexAttribDivisor(2, 1);
+    glVertexAttribDivisor(2, 1);*/
 
     // Initialize variables used for deltaTime and average FPS
     double lastTime = glfwGetTime();
@@ -504,6 +499,8 @@ int main(int argc, char* argv[])
     // Runs every frame until it is closed
     while (!glfwWindowShouldClose(window))
     {
+
+
         // Updates deltaTime and average FPS
         double nowTime = glfwGetTime();
         float deltaTime = (float) nowTime - lastTime;
@@ -553,22 +550,19 @@ int main(int argc, char* argv[])
 
         ImGui_ImplGlfwGL3_NewFrame();
 
-        // Clear densities arrays to get ready for new calculations
-        densities.clear();
-        nearDensities.clear();
-
         // Add gravity acceleration and update predicted particles to new predicted positions
         for (int i = 0; i < particles.size(); i++)
         {
             particles[i].accelerate(glm::vec2(0.0f, -gravity * deltaTime));
             predictedParticles[i].position = particles[i].position + particles[i].velocity * deltaTime;
+            particles[i].density = 0.0f;
         }
         
         // Repopulate grid cells with particles
         updateParticleCells(predictedParticles, grid);
 
-        // Calculate all densities associated with each particle
-        calculateDensities(particles, predictedParticles, densities, nearDensities, results, cellOffsets, grid);
+        // Calculate all 1sities associated with each particle
+        calculateDensities(particles, predictedParticles, results, cellOffsets, grid);
 
         for (int i = 0; i < particles.size(); i++)
         {
@@ -576,13 +570,13 @@ int main(int argc, char* argv[])
             checkNearbyParticles(results, cellOffsets, particles[i], particles, grid);
 
             // Apply pressure forces
-            glm::vec2 pressureForce = calculatePressureForce(i, particles, predictedParticles, densities, nearDensities, results);
-            glm::vec2 pressureAcceleration = pressureForce / glm::max(densities[i], 1e-4f);
+            glm::vec2 pressureForce = calculatePressureForce(i, particles, predictedParticles, results);
+            glm::vec2 pressureAcceleration = pressureForce / glm::max(particles[i].density, 1e-4f);
             particles[i].accelerate(pressureAcceleration * deltaTime);
 
             // Apply viscosity forces
             glm::vec2 viscosityForce = calculateViscosity(i, particles, predictedParticles, results);
-            glm::vec2 viscosityAcceleration = viscosityForce / glm::max(densities[i], 1e-4f);
+            glm::vec2 viscosityAcceleration = viscosityForce / glm::max(particles[i].density, 1e-4f);
             particles[i].accelerate(viscosityAcceleration * deltaTime);
 
             // Mouse interaction forces
@@ -627,9 +621,18 @@ int main(int argc, char* argv[])
             }
         }
 
+
+
         // Add new data to buffer array for shaders
-        glBindBuffer(GL_ARRAY_BUFFER, particleVBO);
-        glBufferData(GL_ARRAY_BUFFER, particles.size()*sizeof(Particle), particles.data(), GL_DYNAMIC_DRAW);
+        //glBindBuffer(GL_ARRAY_BUFFER, particleVBO);
+        //glBufferData(GL_ARRAY_BUFFER, particles.size()*sizeof(Particle), particles.data(), GL_DYNAMIC_DRAW);
+
+        glUseProgram(computeShader);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, SSBO);
+        glDispatchCompute((particles.size() + 127) / 128, 1, 1);
+        glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT); // Make sure GPU writes are visible
+        glUseProgram(renderingShaderProgram);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, SSBO);
         
         // Draw particles using instanced data from quads
         glDrawElementsInstanced(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr, numRows * numColumns);
@@ -637,7 +640,6 @@ int main(int argc, char* argv[])
         // Set settings to be controlled using settings window
         ImGui::Begin("Controls");
         ImGui::SliderFloat("PressureMultiplier", &pressureMultiplier, 0.0f, 50.0f);
-        ImGui::SliderFloat("nearPressureMultiplier", &nearPressureMultiplier, 0.0f, 100.0f);
         ImGui::SliderFloat("Gravity", &gravity, 0.0f, 200.0f);
         ImGui::SliderFloat("targetDensity", &targetDensity, 0.5f, 10.0f);
         ImGui::SliderFloat("restitution", &Particle::restitution, 0.0f, 1.0f);
@@ -659,4 +661,10 @@ int main(int argc, char* argv[])
     ImGui::DestroyContext();
     glfwTerminate();
     return 0;
+
+    {
+        
+
+
+    }
 }

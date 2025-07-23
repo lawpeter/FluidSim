@@ -1,5 +1,5 @@
 const char* fragmentShaderSource = R"glsl(
-    #version 330 core
+    #version 460 core
 
     in float particleSpeed;
     in vec2 localPosition;
