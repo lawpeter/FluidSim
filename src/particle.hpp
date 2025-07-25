@@ -15,10 +15,21 @@ public:
     glm::vec2 velocity;
     float density;
     float padding = 0.0f;
-    static constexpr float radius = 5.0f;
+    static constexpr float radius = 2.0f;
     static float restitution;
     Particle(glm::vec2 position, glm::vec2 velocity) : 
         position(position), velocity(velocity) {}
+
+
+    Particle(const Particle& other) 
+    {
+        position = other.position;
+        velocity = other.velocity;
+        padding = 0.0f;
+    }
+
+    Particle() : position(glm::vec2(0.0f, 0.0f)), velocity(glm::vec2(0.0f, 0.0f)), padding(0.0f) {}
+
     void accelerate(glm::vec2 acceleration)
     {
         velocity.x += acceleration.x;

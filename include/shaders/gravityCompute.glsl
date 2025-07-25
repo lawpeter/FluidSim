@@ -1,4 +1,4 @@
-const char* computeShaderSource = R"glsl(
+const char* gravityComputeShaderSource = R"glsl(
     #version 460 core
 
     layout(local_size_x = 128) in;
@@ -15,17 +15,14 @@ const char* computeShaderSource = R"glsl(
         Particle particles[];
     };
 
-
-    const vec2 gravity = vec2(0.0, -98.1);
-    const float deltaTime = 0.008;
+    vec2 gravity = vec2(0.0, -9.81);
 
     void main()
     {
         uint gID = gl_GlobalInvocationID.x;
 
-        if (gID >= 2500) return; 
+        if (gID >= particles.length()) return; 
 
-        particles[gID].velocity = vec2(10, 10);
-        particles[gID].position = vec2(10, 10);
+        //particles[gID].velocity += gravity;
     }
 )glsl";

@@ -8,10 +8,15 @@
 #include <limits.h>
 #include <iostream>
 #include <vector>
-#include "fragment.glsl"
-#include "vertex.glsl"
-#include "compute.glsl"
 #include "particle.hpp"
+
+#include "shaders/fragment.glsl"
+#include "shaders/vertex.glsl"
+#include "shaders/updateParticleCompute.glsl"
+#include "shaders/gravityCompute.glsl"
+#include "shaders/calculateDensitiesCompute.glsl"
+#include "shaders/calculatePressureForceCompute.glsl"
+#include "shaders/calculateViscosityCompute.glsl"
 
 #define gridWidth ceil(SCREEN_WIDTH/smoothingRadius)
 #define gridHeight ceil(SCREEN_HEIGHT/smoothingRadius)
@@ -39,8 +44,8 @@ float cursorY;
 bool leftMousePressed = false;
 bool rightMousePressed = false;
 
-int numRows = 50;
-int numColumns = 50;
+int numRows = 150;
+int numColumns = 150;
 
 GLFWwindow* loadSim()
 {
@@ -105,26 +110,10 @@ void initializeParticles(std::vector<Particle>& particles)
     {
         for (int j = 0; j < numRows; j++)
         {
-            Particle temp(glm::vec2(50 + (i * 2.5f * Particle::radius), (50 + j * 2.5f * Particle::radius)), glm::vec2(0, 0));
+            Particle temp(glm::vec2(50 + (j * 2.5f * Particle::radius), (50 + i * 2.5f * Particle::radius)), glm::vec2(0, 0));
             particles.push_back(temp);
         }
     }
-}
-
-float densityKernel(float distance)
-{
-    if (distance >= smoothingRadius) return 0.0f;
-
-    float scaleFactor = 6.0f / (M_PI * pow(smoothingRadius, 2));
-    return (smoothingRadius - distance) * (smoothingRadius - distance) * scaleFactor;
-}
-
-float densityKernelDerivative(float distance)
-{
-    if (distance >= smoothingRadius) return 0.0f;
-
-    float scaleFactor = (pow(smoothingRadius, 2) * M_PI) / 12.0f;
-    return -(smoothingRadius - distance) * scaleFactor;
 }
 
 int positionToCellArrayIndex(glm::vec2 position)
@@ -157,117 +146,6 @@ void checkNearbyParticles(std::vector<int>& results, std::vector<int>& cellOffse
     }
 }
 
-void calculateDensities(std::vector<Particle>& particles, std::vector<Particle>& predictedParticles, std::vector<int>& results, std::vector<int>& cellOffsets, std::vector<std::vector<int>>& grid)
-{
-    for (int currentParticleIndex = 0; currentParticleIndex < particles.size(); currentParticleIndex++)
-    {  
-        glm::vec2 currentParticlePosition = predictedParticles[currentParticleIndex].position;
-
-        float density = 0.0f;
-
-        // Populates the results array with nearby particles to check
-        checkNearbyParticles(results, cellOffsets, predictedParticles[currentParticleIndex], predictedParticles, grid);
-
-        for (int otherParticleIndex : results)
-        {
-            glm::vec2 otherParticlePosition = predictedParticles[otherParticleIndex].position;
-            glm::vec2 offsetToOtherParticle = otherParticlePosition - currentParticlePosition;
-            float sqrDistanceToOtherParticle = glm::dot(offsetToOtherParticle, offsetToOtherParticle);
-
-            // Skip particle if its outside the smoothing radius
-            if (sqrDistanceToOtherParticle > pow(smoothingRadius, 2)) continue;
-
-            float distance = sqrt(sqrDistanceToOtherParticle);
-            float influence = densityKernel(distance);
-
-            density += mass * influence;
-        }
-
-        // Add calculated density for the particle to it's density
-        particles[currentParticleIndex].density = density;
-    }
-}
-
-float convertDensityToPressure(float density)
-{
-    float densityError = density - targetDensity;
-    float pressure = densityError * pressureMultiplier;
-    return pressure;
-}
-
-glm::vec2 calculatePressureForce(int particleIndex, std::vector<Particle>& particles, std::vector<Particle>& predictedParticles, std::vector<int>& results)
-{   
-    glm::vec2 currentParticlePosition = predictedParticles[particleIndex].position;
-    float currentDensity = particles[particleIndex].density;
-    float currentPressure = convertDensityToPressure(currentDensity);
-
-    glm::vec2 pressureForce(0, 0);
-
-    int maxIndex = 0;
-
-    // Check all particles within nearby grid cell (using previosly populated results array)
-    for (int otherParticleIndex : results) 
-    {
-        // Skip if checking itself
-        if (otherParticleIndex == particleIndex) continue;
-        glm::vec2 otherParticlePosition = predictedParticles[otherParticleIndex].position;
-        
-        glm::vec2 offsetToOtherParticle = otherParticlePosition - currentParticlePosition;
-        float sqrDistanceToOtherParticle = glm::dot(offsetToOtherParticle, offsetToOtherParticle);
-        
-        // Skip if outside smoothing radius
-        if (sqrDistanceToOtherParticle > pow(smoothingRadius, 2)) continue;
-
-        float distance = sqrt(sqrDistanceToOtherParticle);
-        glm::vec2 dirToOtherParticle = distance > 0 ? offsetToOtherParticle / distance : glm::vec2
-        (0, 1);
-
-        float otherDensity = particles[otherParticleIndex].density;
-        float otherPressure = convertDensityToPressure(otherDensity);
-    
-        // Apply the average of the two pressures to each particle
-        float sharedPressure = (currentPressure + otherPressure) * 0.5f;
-
-        pressureForce += dirToOtherParticle * densityKernelDerivative(distance) * sharedPressure / otherDensity;
-    }
-
-    return pressureForce;
-}
-
-float viscosityKernel(float squareDistance)
-{
-    if (squareDistance >= smoothingRadius * smoothingRadius) return 0.0f;
-    
-    float scale = 4 / (M_PI * pow(smoothingRadius, 8));
-    return pow(((smoothingRadius * smoothingRadius) - squareDistance), 3) * scale;
-}
-
-glm::vec2 calculateViscosity(int particleIndex, std::vector<Particle>& particles, std::vector<Particle>& predictedParticles, std::vector<int>& results)
-{
-    glm::vec2 viscosityForce(0, 0);
-    glm::vec2 currentParticlePosition = predictedParticles[particleIndex].position;
-
-    // Check all particles in nearby grid cells (using previously populated results array)
-    for (int otherParticleIndex : results)
-    {
-        // Skip if checking itself
-        if (otherParticleIndex == particleIndex) continue;
-
-        glm::vec2 otherParticlePosition = predictedParticles[otherParticleIndex].position;
-        
-        glm::vec2 offsetToOtherParticle = otherParticlePosition - currentParticlePosition;
-        float sqrDistanceToOtherParticle = glm::dot(offsetToOtherParticle, offsetToOtherParticle);
-
-        // Skip if other particle is outside smoothing radius
-        if (sqrDistanceToOtherParticle > pow(smoothingRadius, 2)) continue;
-        
-        glm::vec2 otherVelocity = particles[otherParticleIndex].velocity;
-        viscosityForce += (otherVelocity - particles[particleIndex].velocity) * viscosityKernel(sqrDistanceToOtherParticle);
-    }
-
-    return viscosityForce * viscosityStrength;
-}
-
 void updateParticleCells(std::vector<Particle>& particles, std::vector<std::vector<int>>& grid)
 {
     grid.clear();
@@ -283,7 +161,7 @@ void updateParticleCells(std::vector<Particle>& particles, std::vector<std::vect
         }
         else
         {
-            std::cout << "ROGUE PARTICLE" << std::endl;
+            //std::cout << "ROGUE PARTICLE" << std::endl;
         }
     }
 }
@@ -355,6 +233,68 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
     }
 }
 
+GLuint compileComputeShader(const char* computeShaderSource)
+{
+    GLuint computeShader = glCreateShader(GL_COMPUTE_SHADER);
+    glShaderSource(computeShader, 1, &computeShaderSource, NULL);
+    glCompileShader(computeShader);
+
+    int result;
+    glGetShaderiv(computeShader, GL_COMPILE_STATUS, &result);
+    if (result == GL_FALSE)
+    {
+        int length;
+        glGetShaderiv(computeShader, GL_INFO_LOG_LENGTH, &length);
+        char message[length];
+        glGetShaderInfoLog(computeShader, length, &length, message);
+        std::cout << message << std::endl;
+    }
+
+    //create program and attach
+    GLuint computeShaderProgram = glCreateProgram();
+    glAttachShader(computeShaderProgram, computeShader);
+    //link
+    glLinkProgram(computeShaderProgram);
+
+    glGetProgramiv(computeShaderProgram, GL_LINK_STATUS, &result);
+    if (result == GL_FALSE)
+    {
+        int length;
+        glGetProgramiv(computeShaderProgram, GL_INFO_LOG_LENGTH, &length);
+        char message[length];
+        glGetProgramInfoLog(computeShaderProgram, length, &length, message);
+        std::cout << message << std::endl;
+    }
+
+    glDeleteShader(computeShader);
+
+    return computeShaderProgram;
+}
+
+void useComputeProgram(GLuint computeShaderProgram, int numParticles, GLuint particleSSBO)
+{
+    glUseProgram(computeShaderProgram);
+    glDispatchCompute((numParticles + 127) / 128, 1, 1);
+    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT); // Make sure GPU writes are visible
+}
+
+void constructOneDimensionalGrid(std::vector<std::vector<int>>& grid, int* oneDimensionalGrid, int* startingIndices)
+{
+    int count = 0;
+
+    for (int i = 0; i < grid.size(); i++)
+    {
+        startingIndices[i] = count;
+        if (grid[i].size() == 0) startingIndices[i] = -1;
+        for (int j = 0; j < grid[i].size(); j++)
+        {
+            oneDimensionalGrid[count] = grid[i][j];
+            count++;
+        }
+    }
+    if (count < numColumns * numRows) oneDimensionalGrid[count] = -1;
+}
+
 int main(int argc, char* argv[])
 {
     // Orthographic projection for shaders
@@ -376,36 +316,19 @@ int main(int argc, char* argv[])
     GLuint VAO;
     GLuint quadVBO;
     GLuint indexBuffer;
-    GLuint SSBO;
-    //GLuint particleVBO;
-    GLuint instanceVBO;
+    GLuint particleSSBO;
+    GLuint oneDSSBO;
+    GLuint startIndicesSSBO;
 
     // Call method that creates and compiles shaders with shader sources that are #included from external files
     GLuint renderingShaderProgram = createShaderProgram(vertexShaderSource, fragmentShaderSource);
     
-    //compile shader
-    GLuint computeShader = glCreateShader(GL_COMPUTE_SHADER);
-    glShaderSource(computeShader, 1, &computeShaderSource, NULL);
-    glCompileShader(computeShader);
-
-    int result;
-    glGetShaderiv(computeShader, GL_LINK_STATUS, &result);
-    if (result == GL_FALSE)
-    {
-        int length;
-        glGetShaderiv(computeShader, GL_INFO_LOG_LENGTH, &length);
-        char message[length];
-        glGetShaderInfoLog(computeShader, length, &length, message);
-        std::cout << message << std::endl;
-    }
-
-    //create program and attach
-    GLuint computeShaderProgram = glCreateProgram();
-    glAttachShader(computeShaderProgram, computeShader);
-    //link
-    glLinkProgram(computeShaderProgram);
-    glValidateProgram(computeShaderProgram);
-    glDeleteShader(computeShader);
+    //compile compute shaders
+    GLuint updateParticleCompute = compileComputeShader(updateParticleComputeShaderSource);
+    GLuint gravityCompute = compileComputeShader(gravityComputeShaderSource);
+    GLuint densitiesCompute = compileComputeShader(calculateDensitiesComputeShaderSource);
+    GLuint pressureCompute = compileComputeShader(pressureForceComputeShaderSource);
+    GLuint viscosityCompute = compileComputeShader(viscosityForceComputeShaderSource);
 
 
     // Activate the shader program
@@ -456,29 +379,22 @@ int main(int argc, char* argv[])
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBuffer);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, 6 * sizeof(GLuint), indices, GL_STATIC_DRAW);
 
-    glGenBuffers(1, &SSBO);
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, SSBO);
+    glGenBuffers(1, &particleSSBO);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, particleSSBO);
     glBufferData(GL_SHADER_STORAGE_BUFFER, particles.size() * sizeof(Particle), particles.data(), GL_STATIC_DRAW);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, particleSSBO);
+
+    glGenBuffers(1, &oneDSSBO);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, oneDSSBO);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, oneDSSBO);
+
+    glGenBuffers(1, &startIndicesSSBO);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, startIndicesSSBO);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, startIndicesSSBO);
 
     // Assign quad position instructions for vertex shader at layout position 0
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
-
-    /*glGenBuffers(1, &particleVBO);
-    glBindBuffer(GL_ARRAY_BUFFER, particleVBO);
-    glBufferData(GL_ARRAY_BUFFER, particles.size() * sizeof(Particle), particles.data(), GL_DYNAMIC_DRAW);*/
-
-    /*// Shader's step size when rendering particles
-    GLsizei stride = sizeof(Particle);
-
-    // Assigns vec2 particle position data to particlePosition in shader at location 1
-    glEnableVertexAttribArray(1);
-    glVertexAttribDivisor(1, 1);
-
-    // Assigns vec2 particle velocity data to particleVelocity in shader at location 2
-    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, (void*)offsetof(Particle, velocity));
-    glEnableVertexAttribArray(2);
-    glVertexAttribDivisor(2, 1);*/
 
     // Initialize variables used for deltaTime and average FPS
     double lastTime = glfwGetTime();
@@ -499,8 +415,6 @@ int main(int argc, char* argv[])
     // Runs every frame until it is closed
     while (!glfwWindowShouldClose(window))
     {
-
-
         // Updates deltaTime and average FPS
         double nowTime = glfwGetTime();
         float deltaTime = (float) nowTime - lastTime;
@@ -549,35 +463,42 @@ int main(int argc, char* argv[])
         glClear(GL_COLOR_BUFFER_BIT);
 
         ImGui_ImplGlfwGL3_NewFrame();
-
-        // Add gravity acceleration and update predicted particles to new predicted positions
-        for (int i = 0; i < particles.size(); i++)
-        {
-            particles[i].accelerate(glm::vec2(0.0f, -gravity * deltaTime));
-            predictedParticles[i].position = particles[i].position + particles[i].velocity * deltaTime;
-            particles[i].density = 0.0f;
-        }
         
         // Repopulate grid cells with particles
         updateParticleCells(predictedParticles, grid);
 
-        // Calculate all 1sities associated with each particle
-        calculateDensities(particles, predictedParticles, results, cellOffsets, grid);
+        int oneDimensionalGrid[particles.size()];
+        int startIndices[grid.size()];
+
+        constructOneDimensionalGrid(grid, oneDimensionalGrid, startIndices);
+
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, oneDSSBO);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, particles.size() * sizeof(int), oneDimensionalGrid, GL_STATIC_DRAW);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, startIndicesSSBO);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, particles.size() * sizeof(int), startIndices, GL_STATIC_DRAW);
+
+
+
+
+        /*int cell = positionToCellArrayIndex(particle.position);
+        for (int offset : cellOffsets)
+        {
+            int cellToCheck = cell + offset;
+
+            if (cellToCheck < grid.size() && cellToCheck >= 0)
+            {
+                for (int i = startIndices[offset]; i < startIndices[offset + 1]; i++)
+                {
+                    // do smth    
+                }
+            }
+        }*/
+
 
         for (int i = 0; i < particles.size(); i++)
-        {
+        {            
             // Populate results with particles to check
             checkNearbyParticles(results, cellOffsets, particles[i], particles, grid);
-
-            // Apply pressure forces
-            glm::vec2 pressureForce = calculatePressureForce(i, particles, predictedParticles, results);
-            glm::vec2 pressureAcceleration = pressureForce / glm::max(particles[i].density, 1e-4f);
-            particles[i].accelerate(pressureAcceleration * deltaTime);
-
-            // Apply viscosity forces
-            glm::vec2 viscosityForce = calculateViscosity(i, particles, predictedParticles, results);
-            glm::vec2 viscosityAcceleration = viscosityForce / glm::max(particles[i].density, 1e-4f);
-            particles[i].accelerate(viscosityAcceleration * deltaTime);
 
             // Mouse interaction forces
             if (leftMousePressed || rightMousePressed)
@@ -607,7 +528,7 @@ int main(int argc, char* argv[])
             }
         }
 
-        for (int i = 0; i < particles.size(); i++)
+        /*for (int i = 0; i < particles.size(); i++)
         {
             // Move each particle due to velocity
             particles[i].updatePosition(deltaTime);
@@ -619,20 +540,18 @@ int main(int argc, char* argv[])
             {
                 particles[i].doCollison();
             }
+        }*/
+
+        if (timeCount < 2)
+        {
+        useComputeProgram(gravityCompute, particles.size(), particleSSBO);
+        useComputeProgram(updateParticleCompute, particles.size(), particleSSBO);
+        useComputeProgram(densitiesCompute, particles.size(), particleSSBO);
+        useComputeProgram(pressureCompute, particles.size(), particleSSBO);
+        useComputeProgram(viscosityCompute, particles.size(), particleSSBO);
         }
 
-
-
-        // Add new data to buffer array for shaders
-        //glBindBuffer(GL_ARRAY_BUFFER, particleVBO);
-        //glBufferData(GL_ARRAY_BUFFER, particles.size()*sizeof(Particle), particles.data(), GL_DYNAMIC_DRAW);
-
-        glUseProgram(computeShader);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, SSBO);
-        glDispatchCompute((particles.size() + 127) / 128, 1, 1);
-        glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT); // Make sure GPU writes are visible
         glUseProgram(renderingShaderProgram);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, SSBO);
         
         // Draw particles using instanced data from quads
         glDrawElementsInstanced(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr, numRows * numColumns);
@@ -661,10 +580,4 @@ int main(int argc, char* argv[])
     ImGui::DestroyContext();
     glfwTerminate();
     return 0;
-
-    {
-        
-
-
-    }
 }
