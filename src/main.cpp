@@ -44,8 +44,8 @@ float cursorY;
 bool leftMousePressed = false;
 bool rightMousePressed = false;
 
-int numRows = 150;
-int numColumns = 150;
+int numRows = 15;
+int numColumns = 15;
 
 GLFWwindow* loadSim()
 {
@@ -278,20 +278,25 @@ void useComputeProgram(GLuint computeShaderProgram, int numParticles, GLuint par
     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT); // Make sure GPU writes are visible
 }
 
-void constructOneDimensionalGrid(std::vector<std::vector<int>>& grid, int* oneDimensionalGrid, int* startingIndices)
+void constructOneDimensionalGrid(std::vector<std::vector<int>>& grid, int* oneDimensionalGrid, int* startingIndices, int* endIndices)
 {
     int count = 0;
 
     for (int i = 0; i < grid.size(); i++)
     {
         startingIndices[i] = count;
-        if (grid[i].size() == 0) startingIndices[i] = -1;
+
+        //if (grid[i].size() == 0) startingIndices[i] = -1;
+
         for (int j = 0; j < grid[i].size(); j++)
         {
             oneDimensionalGrid[count] = grid[i][j];
             count++;
         }
+
+        endIndices[i] = count;
     }
+
     if (count < numColumns * numRows) oneDimensionalGrid[count] = -1;
 }
 
@@ -319,6 +324,7 @@ int main(int argc, char* argv[])
     GLuint particleSSBO;
     GLuint oneDSSBO;
     GLuint startIndicesSSBO;
+    GLuint endIndicesSSBO;
 
     // Call method that creates and compiles shaders with shader sources that are #included from external files
     GLuint renderingShaderProgram = createShaderProgram(vertexShaderSource, fragmentShaderSource);
@@ -391,6 +397,10 @@ int main(int argc, char* argv[])
     glGenBuffers(1, &startIndicesSSBO);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, startIndicesSSBO);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, startIndicesSSBO);
+    
+    glGenBuffers(1, &endIndicesSSBO);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, endIndicesSSBO);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, endIndicesSSBO);
 
     // Assign quad position instructions for vertex shader at layout position 0
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
@@ -469,13 +479,16 @@ int main(int argc, char* argv[])
 
         int oneDimensionalGrid[particles.size()];
         int startIndices[grid.size()];
+        int endIndices[grid.size()];
 
-        constructOneDimensionalGrid(grid, oneDimensionalGrid, startIndices);
+        constructOneDimensionalGrid(grid, oneDimensionalGrid, startIndices, endIndices);
 
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, oneDSSBO);
         glBufferData(GL_SHADER_STORAGE_BUFFER, particles.size() * sizeof(int), oneDimensionalGrid, GL_STATIC_DRAW);
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, startIndicesSSBO);
-        glBufferData(GL_SHADER_STORAGE_BUFFER, particles.size() * sizeof(int), startIndices, GL_STATIC_DRAW);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, grid.size() * sizeof(int), startIndices, GL_STATIC_DRAW);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, endIndicesSSBO);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, grid.size() * sizeof(int), endIndices, GL_STATIC_DRAW);
 
 
 
