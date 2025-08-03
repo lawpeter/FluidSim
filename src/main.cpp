@@ -166,20 +166,6 @@ void updateParticleCells(std::vector<Particle>& particles, std::vector<std::vect
     }
 }
 
-void constructCellOffsets(std::vector<int>& cellOffsets)
-{
-    // Construct array containing all necessary indices to check 3x3 grid of nearby cells
-    cellOffsets.push_back(-1);
-    cellOffsets.push_back(0);
-    cellOffsets.push_back(1);
-    cellOffsets.push_back(-gridWidth - 1);
-    cellOffsets.push_back(-gridWidth);
-    cellOffsets.push_back(-gridWidth + 1);
-    cellOffsets.push_back(gridWidth - 1);
-    cellOffsets.push_back(gridWidth);
-    cellOffsets.push_back(gridWidth + 1);
-}
-
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
     if (key == GLFW_KEY_SPACE && action == GLFW_PRESS)
@@ -369,8 +355,10 @@ int main(int argc, char* argv[])
     std::vector<std::vector<int>> grid;
     grid.resize(gridWidth * gridHeight);
 
-    std::vector<int> cellOffsets;
-    constructCellOffsets(cellOffsets);
+    //std::vector<int> cellOffsets;
+    //constructCellOffsets(cellOffsets);
+
+    int cellOffsets[9] = {-1 * gridWidth - 1, -gridWidth, -gridWidth + 1, -1, 0, 1, gridWidth - 1, gridWidth, gridWidth + 1};
 
     std::vector<int> results;
 
@@ -488,81 +476,13 @@ int main(int argc, char* argv[])
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, startIndicesSSBO);
         glBufferData(GL_SHADER_STORAGE_BUFFER, grid.size() * sizeof(int), startIndices, GL_STATIC_DRAW);
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, endIndicesSSBO);
-        glBufferData(GL_SHADER_STORAGE_BUFFER, grid.size() * sizeof(int), endIndices, GL_STATIC_DRAW);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, grid.size() * sizeof(int), endIndices, GL_STATIC_DRAW);        
 
-
-
-
-        /*int cell = positionToCellArrayIndex(particle.position);
-        for (int offset : cellOffsets)
-        {
-            int cellToCheck = cell + offset;
-
-            if (cellToCheck < grid.size() && cellToCheck >= 0)
-            {
-                for (int i = startIndices[offset]; i < startIndices[offset + 1]; i++)
-                {
-                    // do smth    
-                }
-            }
-        }*/
-
-
-        for (int i = 0; i < particles.size(); i++)
-        {            
-            // Populate results with particles to check
-            checkNearbyParticles(results, cellOffsets, particles[i], particles, grid);
-
-            // Mouse interaction forces
-            if (leftMousePressed || rightMousePressed)
-            {
-                glm::vec2 cursorPosition(cursorX, SCREEN_HEIGHT - cursorY);
-                glm::vec2 directionToCursor = cursorPosition - particles[i].position;
-                float distance = glm::length(directionToCursor);
-                
-                if (distance > 1e-5f && distance < mouseInteractionRadius)
-                {
-                    glm::vec2 normalizedDireciton = directionToCursor / distance;
-                    
-                    float distanceFactor = 1.0f - (distance / mouseInteractionRadius);
-                    float strength = mouseForceStrength * distanceFactor; // Strength falls off as you get further from the cursor
-                    
-                    if (leftMousePressed)
-                    {
-                        // Pull toward from mouse position (due to positive)
-                        particles[i].accelerate(normalizedDireciton * strength * deltaTime);
-                    }
-                    if (rightMousePressed)
-                    {
-                        // Push away from mouse position (due to negative)
-                        particles[i].accelerate(-normalizedDireciton * strength * deltaTime);
-                    }
-                }
-            }
-        }
-
-        /*for (int i = 0; i < particles.size(); i++)
-        {
-            // Move each particle due to velocity
-            particles[i].updatePosition(deltaTime);
-
-            int gridIndex = positionToCellArrayIndex(particles[i].position);
-
-            // Only check edge grids to see if they're outside bounds and change direction (due to collision)
-            if (gridIndex < gridWidth || gridIndex > gridWidth * (gridHeight - 1) || gridIndex % (int) gridWidth == 0 || gridIndex % (int) gridWidth == gridWidth - 1)
-            {
-                particles[i].doCollison();
-            }
-        }*/
-
-        if (timeCount < 2)
-        {
         useComputeProgram(gravityCompute, particles.size(), particleSSBO);
         useComputeProgram(updateParticleCompute, particles.size(), particleSSBO);
         useComputeProgram(densitiesCompute, particles.size(), particleSSBO);
         useComputeProgram(pressureCompute, particles.size(), particleSSBO);
         useComputeProgram(viscosityCompute, particles.size(), particleSSBO);
-        }
 
         glUseProgram(renderingShaderProgram);
         

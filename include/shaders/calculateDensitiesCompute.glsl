@@ -17,7 +17,7 @@ const char* calculateDensitiesComputeShaderSource = R"glsl(
 
     layout (std430, binding = 1) buffer OneDBuffer
     {
-        int oneD[];
+        int oneDimensionalGrid[];
     };
 
     layout (std430, binding = 2) buffer StartIndicesBuffer
@@ -60,98 +60,34 @@ const char* calculateDensitiesComputeShaderSource = R"glsl(
     void main()
     {
         uint gID = gl_GlobalInvocationID.x;
-        //gID = 15960;
+        gID = 10;
 
         if (gID >= particles.length()) return; 
 
         vec2 currentParticlePosition = particles[gID].position + particles[gID].velocity * deltaTime;
         float density = 0.0;
 
-        //int cell = positionToCellArrayIndex(currentParticlePosition);
-        //cell = 1598;
-
-        for (int i = 0; i < startIndices.length(); i++)
-        {
-            for (int j = startIndices[i]; j < endIndices[i]; j++)
-            {
-                particles[j].velocity = vec2(i, 0);
-            }
-        }
-
-
-        /*int cellX = int((currentParticlePosition.x / smoothingRadius));
-        int cellY = int((currentParticlePosition.y / smoothingRadius));
-        
-        for (int vertical = -1; vertical <= 1; vertical++)
-        {
-            for (int horizontal = -1; horizontal <= 1; horizontal++)
-            {
-                int neighborX = cellX + horizontal;
-                int neighborY = cellY + vertical;
-                if (neighborX < 0 || neighborY < 0 || neighborX >= gridWidth || neighborY >= gridHeight) continue;
-
-                int cellToCheck = neighborY * gridWidth + neighborX;
-                
-                if (cellToCheck < gridWidth * gridHeight && cellToCheck >= 0)
-                {
-                    //int endIndex = cellToCheck + 1 < gridWidth * gridHeight ? startIndices[cellToCheck + 1] : particles.length();
-                    for (int otherParticleIndex = startIndices[cellToCheck]; otherParticleIndex < endIndices[cellToCheck]; otherParticleIndex++)
-                    {
-                        if (oneD[otherParticleIndex] == -1) break;
-                        vec2 otherParticlePosition = particles[oneD[otherParticleIndex]].position + particles[oneD[otherParticleIndex]].velocity * deltaTime;
-                        vec2 offsetToOtherParticle = otherParticlePosition - currentParticlePosition;
-                        float sqrDistanceToOtherParticle = dot(offsetToOtherParticle, offsetToOtherParticle);
-                        
-                        // Skip particle if its outside the smoothing radius
-                        if (sqrDistanceToOtherParticle > pow(smoothingRadius, 2)) continue;
-                        
-                        float distance = sqrt(sqrDistanceToOtherParticle);
-                        float influence = densityKernel(distance);
-                        
-                        density += mass * influence; 
-                        
-                        if (int(particles[otherParticleIndex].position.x) % int(smoothingRadius) == 0 || int(particles[otherParticleIndex].position.y) % int(smoothingRadius) == 0)
-                        {
-                            particles[otherParticleIndex].velocity = vec2(800, 800);
-                        }   
-                        //particles[gID].velocity = vec2(400, 400);
-                        //particles[gID].velocity = vec2(float(cell % gridWidth), float(cell / gridWidth)) * 7.0;
-                    }
-                }
-            }
-        }   */
-
-        /*
+        int gridIndex = positionToCellArrayIndex(particles[gID].position);
         for (int i = 0; i < 9; i++)
         {
-            int offset = cellOffsets[i];
-            int cellToCheck = cell + offset;
-            
-            //cellToCheck = 1598 + (gridWidth + 1);
-            if (cellToCheck < gridWidth * gridHeight && cellToCheck >= 0 && startIndices[cellToCheck] >= 0)
+            int gridToCheck = gridIndex + cellOffsets[i];
+            if (gridToCheck < 0 || gridToCheck >= gridWidth * gridHeight) continue;
+            for (int oneDimensionalIndex = startIndices[gridToCheck]; oneDimensionalIndex < endIndices[gridToCheck]; oneDimensionalIndex++)
             {
-                int endIndex = cellToCheck + 1 < gridWidth * gridHeight ? startIndices[cellToCheck + 1] : particles.length();
-                for (int otherParticleIndex = startIndices[cellToCheck]; otherParticleIndex < endIndex; otherParticleIndex++)
-                {
-                    if (oneD[otherParticleIndex] == -1) break;
-                    vec2 otherParticlePosition = particles[oneD[otherParticleIndex]].position + particles[oneD[otherParticleIndex]].velocity * deltaTime;
-                    vec2 offsetToOtherParticle = otherParticlePosition - currentParticlePosition;
-                    float sqrDistanceToOtherParticle = dot(offsetToOtherParticle, offsetToOtherParticle);
+                int otherParticleIndex = oneDimensionalGrid[oneDimensionalIndex];
+                vec2 otherParticlePosition = particles[oneD[otherParticleIndex]].position + particles[oneD[otherParticleIndex]].velocity * deltaTime;
+                vec2 offsetToOtherParticle = otherParticlePosition - currentParticlePosition;
+                float sqrDistanceToOtherParticle = dot(offsetToOtherParticle, offsetToOtherParticle);
                     
-                    // Skip particle if its outside the smoothing radius
-                    if (sqrDistanceToOtherParticle > pow(smoothingRadius, 2)) continue;
+                // Skip particle if its outside the smoothing radius
+                if (sqrDistanceToOtherParticle > pow(smoothingRadius, 2)) continue;
                     
-                    float distance = sqrt(sqrDistanceToOtherParticle);
-                    float influence = densityKernel(distance);
+                float distance = sqrt(sqrDistanceToOtherParticle);
+                float influence = densityKernel(distance);
                     
-                    density += mass * influence; 
-                    
-                    //particles[otherParticleIndex].velocity = vec2(100 + i * 77.77, 100 + i * 77.77);
-                    particles[gID].velocity = vec2(float(cell % gridWidth), float(cell / gridWidth)) * 7.0;
-                }
+                density += mass * influence; 
             }
         }
-        */
         // Add calculated density for the particle to it's density
         particles[gID].density = density;
     }
