@@ -17,7 +17,7 @@ const char* pressureForceComputeShaderSource = R"glsl(
 
     layout (std430, binding = 1) buffer OneDBuffer
     {
-        int oneD[];
+        int oneDimensionalGrid[];
     };
 
     layout (std430, binding = 2) buffer StartIndicesBuffer
@@ -25,8 +25,13 @@ const char* pressureForceComputeShaderSource = R"glsl(
         int startIndices[];
     };
 
-    float targetDensity = 2.75;
-    float pressureMultiplier = 1.0;
+    layout (std430, binding = 3) buffer EndIndicesBuffer
+    {
+        int endIndices[];
+    };
+
+    float targetDensity = 0.75;
+    float pressureMultiplier = 10;
     const float smoothingRadius = 8.0;
     const float M_PI = 3.14159265358979323846264338327950288419716939937510;
     float deltaTime = 0.0008;
@@ -34,7 +39,7 @@ const char* pressureForceComputeShaderSource = R"glsl(
     int SCREEN_HEIGHT = 800;
     int gridWidth = int(ceil(SCREEN_WIDTH/smoothingRadius));
     int gridHeight = int(ceil(SCREEN_HEIGHT/smoothingRadius));
-    int cellOffsets[9] = int[9](-1, 0, 1, -gridWidth - 1, -gridWidth, -gridWidth + 1, gridWidth - 1, gridWidth, gridWidth + 1);
+    int cellOffsets[9] =  int[9](-gridWidth - 1, -gridWidth, -gridWidth + 1, -1, 0, 1, gridWidth - 1, gridWidth, gridWidth + 1);
     
     int positionToCellArrayIndex(vec2 position)
     {
@@ -72,42 +77,46 @@ const char* pressureForceComputeShaderSource = R"glsl(
 
         vec2 pressureForce = vec2(0.0, 0.0);
 
-        int cell = positionToCellArrayIndex(currentParticlePosition);
+        int gridIndex = positionToCellArrayIndex(currentParticlePosition);
         for (int i = 0; i < 9; i++)
         {
-            int offset = cellOffsets[i];
-            int cellToCheck = cell + offset;
+            int gridToCheck = gridIndex + cellOffsets[i];
 
-            if (cellToCheck < gridWidth * gridHeight && cellToCheck >= 0)
+            if (gridToCheck < 0 || gridToCheck >= gridWidth * gridHeight) continue;
+
+            for (int oneDimensionalIndex = startIndices[gridToCheck]; oneDimensionalIndex < endIndices[gridToCheck]; oneDimensionalIndex++)
             {
-                int endIndex = cellToCheck + 1 < gridWidth * gridHeight ? oneD[startIndices[cellToCheck + 1]] : particles.length();
-                for (int otherParticleIndex = oneD[startIndices[cellToCheck]]; otherParticleIndex < endIndex; otherParticleIndex++)
-                {
-                    // Skip if checking itself
-                    if (otherParticleIndex == gID) continue;
-                    vec2 otherParticlePosition = particles[otherParticleIndex].position + particles[otherParticleIndex].velocity * deltaTime;
-                    
-                    vec2 offsetToOtherParticle = otherParticlePosition - currentParticlePosition;
-                    float sqrDistanceToOtherParticle = dot(offsetToOtherParticle, offsetToOtherParticle);
-                    
-                    // Skip if outside smoothing radius
-                    if (sqrDistanceToOtherParticle > pow(smoothingRadius, 2)) continue;
+                int otherParticleIndex = oneDimensionalGrid[oneDimensionalIndex];
 
-                    float distance = sqrt(sqrDistanceToOtherParticle);
-                    vec2 dirToOtherParticle = distance > 0 ? offsetToOtherParticle / distance : vec2(0, 1);
+                // Skip if checking itself
+                if (otherParticleIndex == gID) continue;
 
-                    float otherDensity = particles[otherParticleIndex].density;
-                    float otherPressure = convertDensityToPressure(otherDensity);
+                vec2 otherParticlePosition = particles[otherParticleIndex].position + particles[otherParticleIndex].velocity * deltaTime;
+                vec2 offsetToOtherParticle = otherParticlePosition - currentParticlePosition;
+                float sqrDistanceToOtherParticle = dot(offsetToOtherParticle, offsetToOtherParticle);
                 
-                    // Apply the average of the two pressures to each particle
-                    float sharedPressure = (currentPressure + otherPressure) * 0.5;
+                // Skip if outside smoothing radius
+                if (sqrDistanceToOtherParticle > pow(smoothingRadius, 2)) continue;
 
+                float distance = sqrt(sqrDistanceToOtherParticle);
+                vec2 dirToOtherParticle = distance > 0 ? offsetToOtherParticle / distance : vec2(0, 1);
+
+                float otherDensity = particles[otherParticleIndex].density;
+                float otherPressure = convertDensityToPressure(otherDensity);
+            
+                // Apply the average of the two pressures to each particle
+                float sharedPressure = (currentPressure + otherPressure) * 0.5;
+
+                if (otherDensity != 0.0)
+                {
                     pressureForce += dirToOtherParticle * densityKernelDerivative(distance) * sharedPressure / otherDensity;
                 }
+
             }
         }
 
-        //particles[gID].velocity += pressureForce / particles[gID].density;
+        if (particles[gID].density != 0.0)
+        particles[gID].velocity += pressureForce / particles[gID].density;
 
     }
 )glsl";

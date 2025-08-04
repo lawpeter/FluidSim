@@ -20,12 +20,14 @@ const char* vertexShaderSource = R"glsl(
 
     out float particleSpeed;
     out vec2 localPosition;
+    out float particleDensity;
 
     uniform mat4 projection;
     uniform float radius;
  
     void main() {
         particleSpeed = (min(sqrt(dot(particles[gl_InstanceID].velocity, particles[gl_InstanceID].velocity)), 800.0f) / 800.0f);
+        particleDensity = particles[gl_InstanceID].density;
         localPosition = meshPosition / radius;
         gl_Position = projection * vec4(meshPosition + particles[gl_InstanceID].position, 0.0, 1.0);
     }

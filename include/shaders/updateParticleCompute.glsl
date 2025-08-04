@@ -50,6 +50,5 @@ const char* updateParticleComputeShaderSource = R"glsl(
             particles[gID].position.y = SCREEN_HEIGHT - radius;
             particles[gID].velocity.y *= -restitution;
         }
-
     }
 )glsl";

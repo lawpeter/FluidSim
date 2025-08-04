@@ -17,12 +17,17 @@ const char* viscosityForceComputeShaderSource = R"glsl(
 
     layout (std430, binding = 1) buffer OneDBuffer
     {
-        int oneD[];
+        int oneDimensionalGrid[];
     };
 
     layout (std430, binding = 2) buffer StartIndicesBuffer
     {
         int startIndices[];
+    };
+
+    layout (std430, binding = 3) buffer EndIndicesBuffer
+    {
+        int endIndices[];
     };
     
     const float smoothingRadius = 8.0;
@@ -33,7 +38,7 @@ const char* viscosityForceComputeShaderSource = R"glsl(
     int SCREEN_HEIGHT = 800;
     int gridWidth = int(ceil(SCREEN_WIDTH/smoothingRadius));
     int gridHeight = int(ceil(SCREEN_HEIGHT/smoothingRadius));
-    int cellOffsets[9] =  int[9](-1, 0, 1, -gridWidth - 1, -gridWidth, -gridWidth + 1, gridWidth - 1, gridWidth, gridWidth + 1);
+    int cellOffsets[9] =  int[9](-gridWidth - 1, -gridWidth, -gridWidth + 1, -1, 0, 1, gridWidth - 1, gridWidth, gridWidth + 1);
 
     int positionToCellArrayIndex(vec2 position)
     {
@@ -61,34 +66,34 @@ const char* viscosityForceComputeShaderSource = R"glsl(
         vec2 viscosityForce = vec2(0.0, 0.0);
         vec2 currentParticlePosition = particles[gID].position + particles[gID].velocity * deltaTime;
 
-        int cell = positionToCellArrayIndex(currentParticlePosition);
+        int gridIndex = positionToCellArrayIndex(currentParticlePosition);
         for (int i = 0; i < 9; i++)
         {
-            int offset = cellOffsets[i];
-            int cellToCheck = cell + offset;
+            int gridToCheck = gridIndex + cellOffsets[i];
 
-            if (cellToCheck < gridWidth * gridHeight && cellToCheck >= 0)
+            if (gridToCheck < 0 || gridToCheck >= gridWidth * gridHeight) continue;
+
+            for (int oneDimensionalIndex = startIndices[gridToCheck]; oneDimensionalIndex < endIndices[gridToCheck]; oneDimensionalIndex++)
             {
-                int endIndex = cellToCheck + 1 < gridWidth * gridHeight ? oneD[startIndices[cellToCheck + 1]] : particles.length();
-                for (int otherParticleIndex = oneD[startIndices[cellToCheck]]; otherParticleIndex < endIndex; otherParticleIndex++)
-                {
-                    // Skip if checking itself
-                    if (otherParticleIndex == gID) continue;
+                int otherParticleIndex = oneDimensionalGrid[oneDimensionalIndex];
 
-                    vec2 otherParticlePosition = particles[otherParticleIndex].position + particles[otherParticleIndex].velocity;
-                    
-                    vec2 offsetToOtherParticle = otherParticlePosition - currentParticlePosition;
-                    float sqrDistanceToOtherParticle = dot(offsetToOtherParticle, offsetToOtherParticle);
+                // Skip if checking itself
+                if (otherParticleIndex == gID) continue;
 
-                    // Skip if other particle is outside smoothing radius
-                    if (sqrDistanceToOtherParticle > pow(smoothingRadius, 2)) continue;
-                    
-                    vec2 otherVelocity = particles[otherParticleIndex].velocity;
-                    viscosityForce += (otherVelocity - particles[gID].velocity) * viscosityKernel(sqrDistanceToOtherParticle);  
-                }
+                vec2 otherParticlePosition = particles[otherParticleIndex].position + particles[otherParticleIndex].velocity * deltaTime;
+                vec2 offsetToOtherParticle = otherParticlePosition - currentParticlePosition;
+                float sqrDistanceToOtherParticle = dot(offsetToOtherParticle, offsetToOtherParticle);
+
+                // Skip if other particle is outside smoothing radius
+                if (sqrDistanceToOtherParticle > pow(smoothingRadius, 2)) continue;
+                
+                vec2 otherVelocity = particles[otherParticleIndex].velocity;
+                viscosityForce += (otherVelocity - particles[gID].velocity) * viscosityKernel(sqrDistanceToOtherParticle);  
             }
         }
+
+        if (particles[gID].density != 0.0)
+        particles[gID].velocity += viscosityForce * viscosityStrength * deltaTime / particles[gID].density;
                 
-        //particles[gID].velocity += viscosityForce * viscosityStrength * deltaTime / particles[gID].density;
     }
 )glsl";

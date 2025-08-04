@@ -21,10 +21,12 @@
 #define gridWidth ceil(SCREEN_WIDTH/smoothingRadius)
 #define gridHeight ceil(SCREEN_HEIGHT/smoothingRadius)
 
+int timeCount = 0;
+
 
 const float smoothingRadius = 4.0f * Particle::radius;
-float targetDensity = 2.75f;
-float pressureMultiplier = 10.0f;
+float targetDensity = 3.75f;
+float pressureMultiplier = 15.0f;
 float gravity = 98.1f;
 float Particle::restitution = 0.9f;
 float mass = 1.0f;
@@ -44,8 +46,8 @@ float cursorY;
 bool leftMousePressed = false;
 bool rightMousePressed = false;
 
-int numRows = 15;
-int numColumns = 15;
+int numRows = 30;
+int numColumns = 30;
 
 GLFWwindow* loadSim()
 {
@@ -129,7 +131,7 @@ void checkNearbyParticles(std::vector<int>& results, std::vector<int>& cellOffse
 {
     results.clear();
 
-    int cell = positionToCellArrayIndex(particle.position);
+    int cell = positionToCellArrayIndex(particle.position + particle.velocity * 0.0008f);
 
     // Check all nearby grid cells and add their particles to the results array if they are within the grid
     for (int offset : cellOffsets)
@@ -154,14 +156,14 @@ void updateParticleCells(std::vector<Particle>& particles, std::vector<std::vect
     for (int i = 0; i < particles.size(); i++)
     {
         // Calculate one dimensional array index from position, and add particle to respective grid cell if it is within bounds
-        int cellIndex = positionToCellArrayIndex(particles[i].position);
+        int cellIndex = positionToCellArrayIndex(particles[i].position + particles[i].velocity * 0.0008f);
         if (cellIndex < grid.size() && cellIndex >= 0) 
         {
             grid[cellIndex].push_back(i);
         }
         else
         {
-            //std::cout << "ROGUE PARTICLE" << std::endl;
+            // std::cout << "ROGUE PARTICLE" << std::endl;
         }
     }
 }
@@ -283,7 +285,17 @@ void constructOneDimensionalGrid(std::vector<std::vector<int>>& grid, int* oneDi
         endIndices[i] = count;
     }
 
-    if (count < numColumns * numRows) oneDimensionalGrid[count] = -1;
+    //if (count < numColumns * numRows) oneDimensionalGrid[count] = -1;
+
+    /*
+    if (timeCount > 220)
+    {
+        for (int i = 0; i < count; i++) 
+        {
+            std::cout << "Start of cell " << i << ": " << startingIndices[i] << ", End of cell " << i << ": " << endIndices[i] << std::endl;
+        }
+    }
+    */
 }
 
 int main(int argc, char* argv[])
@@ -396,7 +408,7 @@ int main(int argc, char* argv[])
 
     // Initialize variables used for deltaTime and average FPS
     double lastTime = glfwGetTime();
-    int timeCount = 0;
+    timeCount = 0;
     float deltaTimeSum = 0.0f;
 
     // Put in positions to predicted particle array (used for calculations)
@@ -460,10 +472,12 @@ int main(int argc, char* argv[])
         glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
+        glGetNamedBufferSubData(particleSSBO, 0, sizeof(Particle) * particles.size(), particles.data());
+
         ImGui_ImplGlfwGL3_NewFrame();
         
         // Repopulate grid cells with particles
-        updateParticleCells(predictedParticles, grid);
+        updateParticleCells(particles, grid);
 
         int oneDimensionalGrid[particles.size()];
         int startIndices[grid.size()];

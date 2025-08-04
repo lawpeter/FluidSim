@@ -23,6 +23,6 @@ const char* gravityComputeShaderSource = R"glsl(
 
         if (gID >= particles.length()) return; 
 
-        //particles[gID].velocity += gravity;
+        particles[gID].velocity += gravity;
     }
 )glsl";
