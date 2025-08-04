@@ -1,8 +1,9 @@
 const char* fragmentShaderSource = R"glsl(
-    #version 330 core
+    #version 460 core
 
     in float particleSpeed;
     in vec2 localPosition;
+    in float particleDensity;
 
     out vec4 FragColor;
 
@@ -23,5 +24,6 @@ const char* fragmentShaderSource = R"glsl(
 
         vec4 baseColor = mix(deepBlue, white, particleSpeed);
         //FragColor = vec4(baseColor.rgb, alpha);
+
     }
 )glsl";

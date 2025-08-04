@@ -2,8 +2,8 @@
 #include <iostream>
 #include <glm/glm.hpp>
 
-#define SCREEN_WIDTH 1000.0f
-#define SCREEN_HEIGHT 800.0f
+#define SCREEN_WIDTH 1800.0f
+#define SCREEN_HEIGHT 1000.0f
 
 class Particle 
 {
@@ -13,10 +13,23 @@ private:
 public:
     glm::vec2 position;
     glm::vec2 velocity;
-    static constexpr float radius = 5.0f;
+    float density;
+    float padding = 0.0f;
+    static constexpr float radius = 1.0f;
     static float restitution;
     Particle(glm::vec2 position, glm::vec2 velocity) : 
         position(position), velocity(velocity) {}
+
+
+    Particle(const Particle& other) 
+    {
+        position = other.position;
+        velocity = other.velocity;
+        padding = 0.0f;
+    }
+
+    Particle() : position(glm::vec2(0.0f, 0.0f)), velocity(glm::vec2(0.0f, 0.0f)), padding(0.0f) {}
+
     void accelerate(glm::vec2 acceleration)
     {
         velocity.x += acceleration.x;

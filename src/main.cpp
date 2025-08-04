@@ -3,44 +3,71 @@
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/random.hpp>
-#include <imgui/imgui.h>
-#include <imgui/imgui_impl_glfw_gl3.h>
 #include <limits.h>
-#include "fragment.glsl"
-#include "vertex.glsl"
 #include <iostream>
-#include "particle.hpp"
 #include <vector>
+#include "particle.hpp"
+
+#include "shaders/fragment.glsl"
+#include "shaders/vertex.glsl"
+#include "shaders/updateParticleCompute.glsl"
+#include "shaders/gravityCompute.glsl"
+#include "shaders/calculateDensitiesCompute.glsl"
+#include "shaders/calculatePressureForceCompute.glsl"
+#include "shaders/calculateViscosityCompute.glsl"
 
 #define gridWidth ceil(SCREEN_WIDTH/smoothingRadius)
 #define gridHeight ceil(SCREEN_HEIGHT/smoothingRadius)
 
+int timeCount = 0;
+
 
 const float smoothingRadius = 4.0f * Particle::radius;
-float targetDensity = 2.75f;
-float pressureMultiplier = 10.0f;
-float nearPressureMultiplier = 1.0f;
+float targetDensity = 3.75f;
+float pressureMultiplier = 15.0f;
 float gravity = 98.1f;
-float Particle::restitution = 0.9f;
+float Particle::restitution = 0.4f;
 float mass = 1.0f;
 float viscosityStrength = 100.0f;
 float mouseInteractionRadius = 200.0f;
 float mouseForceStrength = 500.0f;
 
-bool spacePressed = true;
+bool spacePressed = false;
 bool periodPressed = false;
 bool periodHeld = false;
 bool commaPressed = false;
 bool rPressed = false;
 int frameCount = 0;
 
-float cursorX;
-float cursorY;
+float cursorX = 0.0f;
+float cursorY = 0.0f;
 bool leftMousePressed = false;
 bool rightMousePressed = false;
 
-int numRows = 50;
-int numColumns = 50;
+int numRows = 580;
+int numColumns = 500;
+
+float fixedDeltaTime = 0.0022222222222f;
+
+GLuint VAO;
+GLuint quadVBO;
+GLuint indexBuffer;
+GLuint particleSSBO;
+GLuint oneDSSBO;
+GLuint startIndicesSSBO;
+GLuint endIndicesSSBO;
+GLuint mouseinfoSSBO;
+
+std::vector<Particle> particles;
+std::vector<std::vector<int>> grid;
+
+GLuint renderingShaderProgram;
+GLuint updateParticleCompute;
+GLuint gravityCompute;
+GLuint densitiesCompute;
+GLuint pressureCompute;
+GLuint viscosityCompute;
+
 
 GLFWwindow* loadSim()
 {
@@ -50,10 +77,10 @@ GLFWwindow* loadSim()
     }
 
     glfwWindowHint(GLFW_SAMPLES, 4);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-
+  
     GLFWwindow* window;
     window = glfwCreateWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "FluidSim", NULL, NULL);
 
@@ -96,9 +123,6 @@ GLuint createShaderProgram(const char* vertexSource, const char* fragmentSource)
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
 
-    // Activate the shader program
-    glUseProgram(shaderProgram);
-
     return shaderProgram;
 }
 
@@ -108,42 +132,10 @@ void initializeParticles(std::vector<Particle>& particles)
     {
         for (int j = 0; j < numRows; j++)
         {
-            Particle temp(glm::vec2(50 + (i * 2.5f * Particle::radius), (50 + j * 2.5f * Particle::radius)), glm::vec2(0, 0));
+            Particle temp(glm::vec2(320 + (j * 2.0f * Particle::radius), i * 2.0f * Particle::radius), glm::vec2(0, 0));
             particles.push_back(temp);
         }
     }
-}
-
-float densityKernel(float distance)
-{
-    if (distance >= smoothingRadius) return 0.0f;
-
-    float scaleFactor = 6.0f / (M_PI * pow(smoothingRadius, 2));
-    return (smoothingRadius - distance) * (smoothingRadius - distance) * scaleFactor;
-}
-
-float densityKernelDerivative(float distance)
-{
-    if (distance >= smoothingRadius) return 0.0f;
-
-    float scaleFactor = (pow(smoothingRadius, 2) * M_PI) / 12.0f;
-    return -(smoothingRadius - distance) * scaleFactor;
-}
-
-float nearDensityKernel(float distance)
-{
-    if (distance >= smoothingRadius) return 0.0f;
-
-    float scaleFactor = 10.0f / (M_PI * pow(smoothingRadius, 5));
-    return (smoothingRadius - distance) * (smoothingRadius - distance) * (smoothingRadius - distance) * scaleFactor;
-}
-
-float nearDensityKernelDerivative(float distance)
-{
-    if (distance >= smoothingRadius) return 0.0f;
-
-    float scaleFactor = 30.0f / (M_PI * pow(smoothingRadius, 5));
-    return -(smoothingRadius - distance) * (smoothingRadius - distance) * scaleFactor;
 }
 
 int positionToCellArrayIndex(glm::vec2 position)
@@ -155,153 +147,6 @@ int positionToCellArrayIndex(glm::vec2 position)
     return (cellY * gridWidth) + cellX;
 }
 
-void checkNearbyParticles(std::vector<int>& results, std::vector<int>& cellOffsets, Particle& particle, std::vector<Particle>& particles, std::vector<std::vector<int>>& grid)
-{
-    results.clear();
-
-    int cell = positionToCellArrayIndex(particle.position);
-
-    // Check all nearby grid cells and add their particles to the results array if they are within the grid
-    for (int offset : cellOffsets)
-    {
-        int cellToCheck = cell + offset;
-
-        if (cellToCheck < grid.size() && cellToCheck >= 0)
-        {
-            for (int otherParticleIndex : grid[cellToCheck])
-            {
-                results.push_back(otherParticleIndex);
-            }
-        }
-    }
-}
-
-void calculateDensities(std::vector<Particle>& particles, std::vector<Particle>& predictedParticles, std::vector<float>& densities, std::vector<float>& nearDensities, std::vector<int>& results, std::vector<int>& cellOffsets, std::vector<std::vector<int>>& grid)
-{
-    for (int currentParticleIndex = 0; currentParticleIndex < particles.size(); currentParticleIndex++)
-    {  
-        glm::vec2 currentParticlePosition = predictedParticles[currentParticleIndex].position;
-
-        float density = 0.0f;
-        float nearDensity = 0.0f;
-
-        // Populates the results array with nearby particles to check
-        checkNearbyParticles(results, cellOffsets, predictedParticles[currentParticleIndex], predictedParticles, grid);
-
-        for (int otherParticleIndex : results)
-        {
-            glm::vec2 otherParticlePosition = predictedParticles[otherParticleIndex].position;
-            glm::vec2 offsetToOtherParticle = otherParticlePosition - currentParticlePosition;
-            float sqrDistanceToOtherParticle = glm::dot(offsetToOtherParticle, offsetToOtherParticle);
-
-            // Skip particle if its outside the smoothing radius
-            if (sqrDistanceToOtherParticle > pow(smoothingRadius, 2)) continue;
-
-            float distance = sqrt(sqrDistanceToOtherParticle);
-            float influence = densityKernel(distance);
-            float nearInfluence = nearDensityKernel(distance);
-
-            density += mass * influence;
-            nearDensity += mass * nearInfluence;
-        }
-
-        // Add calculated density for the particle to the densities array (with the same index as the particle)
-        densities.push_back(density);
-        nearDensities.push_back(nearDensity);
-    }
-}
-
-float convertDensityToPressure(float density)
-{
-    float densityError = density - targetDensity;
-    float pressure = densityError * pressureMultiplier;
-    return pressure;
-}
-
-float convertNearDensityToPressure(float nearDensity)
-{
-	return nearPressureMultiplier * nearDensity;
-}
-
-glm::vec2 calculatePressureForce(int particleIndex, std::vector<Particle>& particles, std::vector<Particle>& predictedParticles, std::vector<float>& densities, std::vector<float>& nearDensities, std::vector<int>& results)
-{   
-    glm::vec2 currentParticlePosition = predictedParticles[particleIndex].position;
-    float currentDensity = densities[particleIndex];
-    float currentNearDensity = nearDensities[particleIndex];
-    float currentPressure = convertDensityToPressure(currentDensity);
-    float currentNearPressure = convertNearDensityToPressure(currentNearDensity);
-
-    glm::vec2 pressureForce(0, 0);
-
-    int maxIndex = 0;
-
-    // Check all particles within nearby grid cell (using previosly populated results array)
-    for (int otherParticleIndex : results) 
-    {
-        // Skip if checking itself
-        if (otherParticleIndex == particleIndex) continue;
-        glm::vec2 otherParticlePosition = predictedParticles[otherParticleIndex].position;
-        
-        glm::vec2 offsetToOtherParticle = otherParticlePosition - currentParticlePosition;
-        float sqrDistanceToOtherParticle = glm::dot(offsetToOtherParticle, offsetToOtherParticle);
-        
-        // Skip if outside smoothing radius
-        if (sqrDistanceToOtherParticle > pow(smoothingRadius, 2)) continue;
-
-        float distance = sqrt(sqrDistanceToOtherParticle);
-        glm::vec2 dirToOtherParticle = distance > 0 ? offsetToOtherParticle / distance : glm::vec2
-        (0, 1);
-
-        float otherDensity = densities[otherParticleIndex];
-        float otherNearDensity = nearDensities[otherParticleIndex];
-        float otherPressure = convertDensityToPressure(otherDensity);
-        float otherNearPressure = convertNearDensityToPressure(otherNearDensity);
-    
-        // Apply the average of the two pressures to each particle
-        float sharedPressure = (currentPressure + otherPressure) * 0.5f;
-        float sharedNearPressure = (currentNearPressure + otherNearPressure) * 0.5f;
-
-        pressureForce += dirToOtherParticle * densityKernelDerivative(distance) * sharedPressure / otherDensity;
-        pressureForce += dirToOtherParticle * nearDensityKernelDerivative(distance) * sharedNearPressure / otherNearDensity;
-    }
-
-    return pressureForce;
-}
-
-float viscosityKernel(float squareDistance)
-{
-    if (squareDistance >= smoothingRadius * smoothingRadius) return 0.0f;
-    
-    float scale = 4 / (M_PI * pow(smoothingRadius, 8));
-    return pow(((smoothingRadius * smoothingRadius) - squareDistance), 3) * scale;
-}
-
-glm::vec2 calculateViscosity(int particleIndex, std::vector<Particle>& particles, std::vector<Particle>& predictedParticles, std::vector<int>& results)
-{
-    glm::vec2 viscosityForce(0, 0);
-    glm::vec2 currentParticlePosition = predictedParticles[particleIndex].position;
-
-    // Check all particles in nearby grid cells (using previously populated results array)
-    for (int otherParticleIndex : results)
-    {
-        // Skip if checking itself
-        if (otherParticleIndex == particleIndex) continue;
-
-        glm::vec2 otherParticlePosition = predictedParticles[otherParticleIndex].position;
-        
-        glm::vec2 offsetToOtherParticle = otherParticlePosition - currentParticlePosition;
-        float sqrDistanceToOtherParticle = glm::dot(offsetToOtherParticle, offsetToOtherParticle);
-
-        // Skip if other particle is outside smoothing radius
-        if (sqrDistanceToOtherParticle > pow(smoothingRadius, 2)) continue;
-        
-        glm::vec2 otherVelocity = particles[otherParticleIndex].velocity;
-        viscosityForce += (otherVelocity - particles[particleIndex].velocity) * viscosityKernel(sqrDistanceToOtherParticle);
-    }
-
-    return viscosityForce * viscosityStrength;
-}
-
 void updateParticleCells(std::vector<Particle>& particles, std::vector<std::vector<int>>& grid)
 {
     grid.clear();
@@ -310,30 +155,16 @@ void updateParticleCells(std::vector<Particle>& particles, std::vector<std::vect
     for (int i = 0; i < particles.size(); i++)
     {
         // Calculate one dimensional array index from position, and add particle to respective grid cell if it is within bounds
-        int cellIndex = positionToCellArrayIndex(particles[i].position);
+        int cellIndex = positionToCellArrayIndex(particles[i].position + particles[i].velocity * fixedDeltaTime);
         if (cellIndex < grid.size() && cellIndex >= 0) 
         {
             grid[cellIndex].push_back(i);
         }
         else
         {
-            std::cout << "ROGUE PARTICLE" << std::endl;
+            //std::cout << "ROGUE PARTICLE" << std::endl;
         }
     }
-}
-
-void constructCellOffsets(std::vector<int>& cellOffsets)
-{
-    // Construct array containing all necessary indices to check 3x3 grid of nearby cells
-    cellOffsets.push_back(-1);
-    cellOffsets.push_back(0);
-    cellOffsets.push_back(1);
-    cellOffsets.push_back(-gridWidth - 1);
-    cellOffsets.push_back(-gridWidth);
-    cellOffsets.push_back(-gridWidth + 1);
-    cellOffsets.push_back(gridWidth - 1);
-    cellOffsets.push_back(gridWidth);
-    cellOffsets.push_back(gridWidth + 1);
 }
 
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
@@ -389,6 +220,109 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
     }
 }
 
+GLuint compileComputeShader(const char* computeShaderSource)
+{
+    GLuint computeShader = glCreateShader(GL_COMPUTE_SHADER);
+    glShaderSource(computeShader, 1, &computeShaderSource, NULL);
+    glCompileShader(computeShader);
+
+    int result;
+    glGetShaderiv(computeShader, GL_COMPILE_STATUS, &result);
+    if (result == GL_FALSE)
+    {
+        int length;
+        glGetShaderiv(computeShader, GL_INFO_LOG_LENGTH, &length);
+        char message[length];
+        glGetShaderInfoLog(computeShader, length, &length, message);
+        std::cout << message << std::endl;
+    }
+
+    //create program and attach
+    GLuint computeShaderProgram = glCreateProgram();
+    glAttachShader(computeShaderProgram, computeShader);
+    //link
+    glLinkProgram(computeShaderProgram);
+
+    glGetProgramiv(computeShaderProgram, GL_LINK_STATUS, &result);
+    if (result == GL_FALSE)
+    {
+        int length;
+        glGetProgramiv(computeShaderProgram, GL_INFO_LOG_LENGTH, &length);
+        char message[length];
+        glGetProgramInfoLog(computeShaderProgram, length, &length, message);
+        std::cout << message << std::endl;
+    }
+
+    glDeleteShader(computeShader);
+
+    return computeShaderProgram;
+}
+
+void useComputeProgram(GLuint computeShaderProgram, int numParticles)
+{
+    glUseProgram(computeShaderProgram);
+    glDispatchCompute((numParticles + 127) / 128, 1, 1);
+    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT); // Make sure GPU writes are visible
+}
+
+void constructOneDimensionalGrid(std::vector<std::vector<int>>& grid, int* oneDimensionalGrid, int* startingIndices, int* endIndices)
+{
+    int count = 0;
+
+    for (int i = 0; i < grid.size(); i++)
+    {
+        startingIndices[i] = count;
+
+        for (int j = 0; j < grid[i].size(); j++)
+        {
+            oneDimensionalGrid[count] = grid[i][j];
+            count++;
+        }
+
+        endIndices[i] = count;
+    }
+}
+
+void runFrame()
+{
+    // Clear screen each frame
+    glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    glGetNamedBufferSubData(particleSSBO, 0, sizeof(Particle) * particles.size(), particles.data());
+    
+    // Repopulate grid cells with particles
+    updateParticleCells(particles, grid);
+
+    int oneDimensionalGrid[particles.size()];
+    int startIndices[grid.size()];
+    int endIndices[grid.size()];
+
+    constructOneDimensionalGrid(grid, oneDimensionalGrid, startIndices, endIndices);
+
+    float mouseinfo[4] = {(leftMousePressed == 1 ? 0.0f : 1.0f), (rightMousePressed == 1 ? 0.0f : 1.0f), cursorX, cursorY};
+
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, oneDSSBO);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, particles.size() * sizeof(int), oneDimensionalGrid, GL_STATIC_DRAW);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, startIndicesSSBO);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, grid.size() * sizeof(int), startIndices, GL_STATIC_DRAW);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, endIndicesSSBO);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, grid.size() * sizeof(int), endIndices, GL_STATIC_DRAW);   
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, mouseinfoSSBO);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, 4 * sizeof(float), mouseinfo, GL_STATIC_DRAW); 
+
+    useComputeProgram(gravityCompute, particles.size());
+    useComputeProgram(updateParticleCompute, particles.size());
+    useComputeProgram(densitiesCompute, particles.size());
+    useComputeProgram(pressureCompute, particles.size());
+    useComputeProgram(viscosityCompute, particles.size());
+
+    glUseProgram(renderingShaderProgram);
+    
+    // Draw particles using instanced data from quads
+    glDrawElementsInstanced(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr, numRows * numColumns);
+}
+
 int main(int argc, char* argv[])
 {
     // Orthographic projection for shaders
@@ -402,26 +336,26 @@ int main(int argc, char* argv[])
         return -1;
     }
 
-    // Initialize settings control window
-    ImGui::CreateContext();
-    ImGui_ImplGlfwGL3_Init(window, true);
-    ImGui::StyleColorsDark();
-
-    GLuint VAO;
-    GLuint quadVBO;
-    GLuint indexBuffer;
-    GLuint particleVBO;
-    GLuint instanceVBO;
-
     // Call method that creates and compiles shaders with shader sources that are #included from external files
-    GLuint shaderProgram = createShaderProgram(vertexShaderSource, fragmentShaderSource);
+    renderingShaderProgram = createShaderProgram(vertexShaderSource, fragmentShaderSource);
+    
+    //compile compute shaders
+    updateParticleCompute = compileComputeShader(updateParticleComputeShaderSource);
+    gravityCompute = compileComputeShader(gravityComputeShaderSource);
+    densitiesCompute = compileComputeShader(calculateDensitiesComputeShaderSource);
+    pressureCompute = compileComputeShader(pressureForceComputeShaderSource);
+    viscosityCompute = compileComputeShader(viscosityForceComputeShaderSource);
+
+
+    // Activate the shader program
+    glUseProgram(renderingShaderProgram);
 
     // Place projection matrix inside shader uniform
-    GLint projectionUniformLocation = glGetUniformLocation(shaderProgram, "projection");
+    GLint projectionUniformLocation = glGetUniformLocation(renderingShaderProgram, "projection");
     glUniformMatrix4fv(projectionUniformLocation, 1, GL_FALSE, &projection[0][0]);
 
     // Place radius inside shader uniform
-    GLint radiusUniformLocation = glGetUniformLocation(shaderProgram, "radius");
+    GLint radiusUniformLocation = glGetUniformLocation(renderingShaderProgram, "radius");
     glUniform1f(radiusUniformLocation, Particle::radius);
 
     // Construct the corners of our quad used for rendering
@@ -438,20 +372,12 @@ int main(int argc, char* argv[])
         2, 3, 0
     };
 
-    std::vector<Particle> particles;
     initializeParticles(particles);
 
     // Pre-size grid array to the max size
-    std::vector<std::vector<int>> grid;
     grid.resize(gridWidth * gridHeight);
 
-    std::vector<int> cellOffsets;
-    constructCellOffsets(cellOffsets);
-
-    std::vector<int> results;
-
-    std::vector<float> densities;
-    std::vector<float> nearDensities;
+    int cellOffsets[9] = {-1 * gridWidth - 1, -gridWidth, -gridWidth + 1, -1, 0, 1, gridWidth - 1, gridWidth, gridWidth + 1};
 
     glGenVertexArrays(1, &VAO);
     glBindVertexArray(VAO);
@@ -464,38 +390,35 @@ int main(int argc, char* argv[])
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBuffer);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, 6 * sizeof(GLuint), indices, GL_STATIC_DRAW);
 
+    glGenBuffers(1, &particleSSBO);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, particleSSBO);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, particles.size() * sizeof(Particle), particles.data(), GL_STATIC_DRAW);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, particleSSBO);
+
+    glGenBuffers(1, &oneDSSBO);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, oneDSSBO);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, oneDSSBO);
+
+    glGenBuffers(1, &startIndicesSSBO);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, startIndicesSSBO);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, startIndicesSSBO);
+    
+    glGenBuffers(1, &endIndicesSSBO);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, endIndicesSSBO);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, endIndicesSSBO);
+
+    glGenBuffers(1, &mouseinfoSSBO);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, mouseinfoSSBO);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, mouseinfoSSBO);
+
     // Assign quad position instructions for vertex shader at layout position 0
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
 
-    glGenBuffers(1, &particleVBO);
-    glBindBuffer(GL_ARRAY_BUFFER, particleVBO);
-    glBufferData(GL_ARRAY_BUFFER, particles.size() * sizeof(Particle), particles.data(), GL_DYNAMIC_DRAW);
-
-    // Shader's step size when rendering particles
-    GLsizei stride = sizeof(Particle);
-
-    // Assigns vec2 particle position data to particlePosition in shader at location 1
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, stride, (void*)offsetof(Particle, position));
-    glEnableVertexAttribArray(1);
-    glVertexAttribDivisor(1, 1);
-
-    // Assigns vec2 particle velocity data to particleVelocity in shader at location 2
-    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, (void*)offsetof(Particle, velocity));
-    glEnableVertexAttribArray(2);
-    glVertexAttribDivisor(2, 1);
-
     // Initialize variables used for deltaTime and average FPS
     double lastTime = glfwGetTime();
-    int timeCount = 0;
+    timeCount = 0;
     float deltaTimeSum = 0.0f;
-
-    // Put in positions to predicted particle array (used for calculations)
-    std::vector<Particle> predictedParticles;
-    for (Particle p : particles)
-    {
-        predictedParticles.push_back(p);
-    }
 
     glfwSetKeyCallback(window, key_callback);
     glfwSetCursorPosCallback(window, cursor_position_callback);
@@ -508,145 +431,53 @@ int main(int argc, char* argv[])
         double nowTime = glfwGetTime();
         float deltaTime = (float) nowTime - lastTime;
         lastTime = nowTime;
-        //float deltaTime = 1 / 240.0f;
 
         deltaTimeSum += deltaTime;
         timeCount++;
 
         // Keypress handling
-        if (commaPressed) frameCount++;
+        //if (commaPressed) frameCount++;
         if (spacePressed)
         {
-            deltaTime *= 0;
-
             if (periodHeld)
             {
-                deltaTime = 1 / 240.0f;
+                runFrame();
             }
             else if (periodPressed)
             {
-                deltaTime = 1 / 240.0f;
+                runFrame();
                 periodPressed = false;
             }
-        }
-        if (commaPressed)
-        {
-            if (frameCount < 10)
-                spacePressed = false;
-            else
+            
+            if (commaPressed)
             {
-                spacePressed = true;
-                frameCount = 0;
-                commaPressed = false;
-            }
-        }
-        if (rPressed)
-        {
-            particles.clear();
-            initializeParticles(particles);
-            rPressed = false;
-        }
-
-        // Clear screen each frame
-        glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
-
-        ImGui_ImplGlfwGL3_NewFrame();
-
-        // Clear densities arrays to get ready for new calculations
-        densities.clear();
-        nearDensities.clear();
-
-        // Add gravity acceleration and update predicted particles to new predicted positions
-        for (int i = 0; i < particles.size(); i++)
-        {
-            particles[i].accelerate(glm::vec2(0.0f, -gravity * deltaTime));
-            predictedParticles[i].position = particles[i].position + particles[i].velocity * deltaTime;
-        }
-        
-        // Repopulate grid cells with particles
-        updateParticleCells(predictedParticles, grid);
-
-        // Calculate all densities associated with each particle
-        calculateDensities(particles, predictedParticles, densities, nearDensities, results, cellOffsets, grid);
-
-        for (int i = 0; i < particles.size(); i++)
-        {
-            // Populate results with particles to check
-            checkNearbyParticles(results, cellOffsets, particles[i], particles, grid);
-
-            // Apply pressure forces
-            glm::vec2 pressureForce = calculatePressureForce(i, particles, predictedParticles, densities, nearDensities, results);
-            glm::vec2 pressureAcceleration = pressureForce / glm::max(densities[i], 1e-4f);
-            particles[i].accelerate(pressureAcceleration * deltaTime);
-
-            // Apply viscosity forces
-            glm::vec2 viscosityForce = calculateViscosity(i, particles, predictedParticles, results);
-            glm::vec2 viscosityAcceleration = viscosityForce / glm::max(densities[i], 1e-4f);
-            particles[i].accelerate(viscosityAcceleration * deltaTime);
-
-            // Mouse interaction forces
-            if (leftMousePressed || rightMousePressed)
-            {
-                glm::vec2 cursorPosition(cursorX, SCREEN_HEIGHT - cursorY);
-                glm::vec2 directionToCursor = cursorPosition - particles[i].position;
-                float distance = glm::length(directionToCursor);
-                
-                if (distance > 1e-5f && distance < mouseInteractionRadius)
+                if (frameCount < 10)
+                { 
+                    runFrame();
+                    frameCount++;
+                }
+                else
                 {
-                    glm::vec2 normalizedDireciton = directionToCursor / distance;
-                    
-                    float distanceFactor = 1.0f - (distance / mouseInteractionRadius);
-                    float strength = mouseForceStrength * distanceFactor; // Strength falls off as you get further from the cursor
-                    
-                    if (leftMousePressed)
-                    {
-                        // Pull toward from mouse position (due to positive)
-                        particles[i].accelerate(normalizedDireciton * strength * deltaTime);
-                    }
-                    if (rightMousePressed)
-                    {
-                        // Push away from mouse position (due to negative)
-                        particles[i].accelerate(-normalizedDireciton * strength * deltaTime);
-                    }
+                    frameCount = 0;
+                    commaPressed = false;
                 }
             }
-        }
 
-        for (int i = 0; i < particles.size(); i++)
-        {
-            // Move each particle due to velocity
-            particles[i].updatePosition(deltaTime);
-
-            int gridIndex = positionToCellArrayIndex(particles[i].position);
-
-            // Only check edge grids to see if they're outside bounds and change direction (due to collision)
-            if (gridIndex < gridWidth || gridIndex > gridWidth * (gridHeight - 1) || gridIndex % (int) gridWidth == 0 || gridIndex % (int) gridWidth == gridWidth - 1)
+            if (rPressed)
             {
-                particles[i].doCollison();
+                particles.clear();
+                initializeParticles(particles);
+                glBindBuffer(GL_SHADER_STORAGE_BUFFER, particleSSBO);
+                glBufferData(GL_SHADER_STORAGE_BUFFER, particles.size() * sizeof(Particle), particles.data(), GL_STATIC_DRAW);
+                runFrame();
+                rPressed = false;
             }
         }
+        else
+        {
+            runFrame();
+        }
 
-        // Add new data to buffer array for shaders
-        glBindBuffer(GL_ARRAY_BUFFER, particleVBO);
-        glBufferData(GL_ARRAY_BUFFER, particles.size()*sizeof(Particle), particles.data(), GL_DYNAMIC_DRAW);
-        
-        // Draw particles using instanced data from quads
-        glDrawElementsInstanced(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr, numRows * numColumns);
-
-        // Set settings to be controlled using settings window
-        ImGui::Begin("Controls");
-        ImGui::SliderFloat("PressureMultiplier", &pressureMultiplier, 0.0f, 50.0f);
-        ImGui::SliderFloat("nearPressureMultiplier", &nearPressureMultiplier, 0.0f, 100.0f);
-        ImGui::SliderFloat("Gravity", &gravity, 0.0f, 200.0f);
-        ImGui::SliderFloat("targetDensity", &targetDensity, 0.5f, 10.0f);
-        ImGui::SliderFloat("restitution", &Particle::restitution, 0.0f, 1.0f);
-        ImGui::SliderFloat("viscosityStrength", &viscosityStrength, 0.0f, 100.0f);
-        ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
-        ImGui::End();
-
-        ImGui::Render();
-        ImGui_ImplGlfwGL3_RenderDrawData(ImGui::GetDrawData());
         glfwSwapBuffers(window);
         glfwPollEvents();
 
@@ -655,8 +486,6 @@ int main(int argc, char* argv[])
     std::cout << "Average FPS: " << 1 / (deltaTimeSum / timeCount) << " " << timeCount << std::endl;
 
     // Cleanup
-    ImGui_ImplGlfwGL3_Shutdown();
-    ImGui::DestroyContext();
     glfwTerminate();
     return 0;
 }
