@@ -16,11 +16,11 @@ const char* updateParticleComputeShaderSource = R"glsl(
     };
 
     const vec2 gravity = vec2(0.0, -98.1);
-    const float deltaTime = 0.0008;
-    const float radius = 2.0;
-    const float restitution = 0.9;
-    const float SCREEN_WIDTH = 1000.0;
-    const float SCREEN_HEIGHT = 800.0;
+    const float deltaTime = 0.0022222222222;
+    const float radius = 1.0;
+    const float restitution = 0.4;
+    int SCREEN_WIDTH = 1800;
+    int SCREEN_HEIGHT = 1000;
 
     void main()
     {

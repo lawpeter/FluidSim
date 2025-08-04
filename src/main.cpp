@@ -3,8 +3,6 @@
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/random.hpp>
-#include <imgui/imgui.h>
-#include <imgui/imgui_impl_glfw_gl3.h>
 #include <limits.h>
 #include <iostream>
 #include <vector>
@@ -28,7 +26,7 @@ const float smoothingRadius = 4.0f * Particle::radius;
 float targetDensity = 3.75f;
 float pressureMultiplier = 15.0f;
 float gravity = 98.1f;
-float Particle::restitution = 0.9f;
+float Particle::restitution = 0.4f;
 float mass = 1.0f;
 float viscosityStrength = 100.0f;
 float mouseInteractionRadius = 200.0f;
@@ -41,13 +39,35 @@ bool commaPressed = false;
 bool rPressed = false;
 int frameCount = 0;
 
-float cursorX;
-float cursorY;
+float cursorX = 0.0f;
+float cursorY = 0.0f;
 bool leftMousePressed = false;
 bool rightMousePressed = false;
 
-int numRows = 30;
-int numColumns = 30;
+int numRows = 580;
+int numColumns = 500;
+
+float fixedDeltaTime = 0.0022222222222f;
+
+GLuint VAO;
+GLuint quadVBO;
+GLuint indexBuffer;
+GLuint particleSSBO;
+GLuint oneDSSBO;
+GLuint startIndicesSSBO;
+GLuint endIndicesSSBO;
+GLuint mouseinfoSSBO;
+
+std::vector<Particle> particles;
+std::vector<std::vector<int>> grid;
+
+GLuint renderingShaderProgram;
+GLuint updateParticleCompute;
+GLuint gravityCompute;
+GLuint densitiesCompute;
+GLuint pressureCompute;
+GLuint viscosityCompute;
+
 
 GLFWwindow* loadSim()
 {
@@ -112,7 +132,7 @@ void initializeParticles(std::vector<Particle>& particles)
     {
         for (int j = 0; j < numRows; j++)
         {
-            Particle temp(glm::vec2(50 + (j * 2.5f * Particle::radius), (50 + i * 2.5f * Particle::radius)), glm::vec2(0, 0));
+            Particle temp(glm::vec2(320 + (j * 2.0f * Particle::radius), i * 2.0f * Particle::radius), glm::vec2(0, 0));
             particles.push_back(temp);
         }
     }
@@ -127,27 +147,6 @@ int positionToCellArrayIndex(glm::vec2 position)
     return (cellY * gridWidth) + cellX;
 }
 
-void checkNearbyParticles(std::vector<int>& results, std::vector<int>& cellOffsets, Particle& particle, std::vector<Particle>& particles, std::vector<std::vector<int>>& grid)
-{
-    results.clear();
-
-    int cell = positionToCellArrayIndex(particle.position + particle.velocity * 0.0008f);
-
-    // Check all nearby grid cells and add their particles to the results array if they are within the grid
-    for (int offset : cellOffsets)
-    {
-        int cellToCheck = cell + offset;
-
-        if (cellToCheck < grid.size() && cellToCheck >= 0)
-        {
-            for (int otherParticleIndex : grid[cellToCheck])
-            {
-                results.push_back(otherParticleIndex);
-            }
-        }
-    }
-}
-
 void updateParticleCells(std::vector<Particle>& particles, std::vector<std::vector<int>>& grid)
 {
     grid.clear();
@@ -156,14 +155,14 @@ void updateParticleCells(std::vector<Particle>& particles, std::vector<std::vect
     for (int i = 0; i < particles.size(); i++)
     {
         // Calculate one dimensional array index from position, and add particle to respective grid cell if it is within bounds
-        int cellIndex = positionToCellArrayIndex(particles[i].position + particles[i].velocity * 0.0008f);
+        int cellIndex = positionToCellArrayIndex(particles[i].position + particles[i].velocity * fixedDeltaTime);
         if (cellIndex < grid.size() && cellIndex >= 0) 
         {
             grid[cellIndex].push_back(i);
         }
         else
         {
-            // std::cout << "ROGUE PARTICLE" << std::endl;
+            //std::cout << "ROGUE PARTICLE" << std::endl;
         }
     }
 }
@@ -259,7 +258,7 @@ GLuint compileComputeShader(const char* computeShaderSource)
     return computeShaderProgram;
 }
 
-void useComputeProgram(GLuint computeShaderProgram, int numParticles, GLuint particleSSBO)
+void useComputeProgram(GLuint computeShaderProgram, int numParticles)
 {
     glUseProgram(computeShaderProgram);
     glDispatchCompute((numParticles + 127) / 128, 1, 1);
@@ -274,8 +273,6 @@ void constructOneDimensionalGrid(std::vector<std::vector<int>>& grid, int* oneDi
     {
         startingIndices[i] = count;
 
-        //if (grid[i].size() == 0) startingIndices[i] = -1;
-
         for (int j = 0; j < grid[i].size(); j++)
         {
             oneDimensionalGrid[count] = grid[i][j];
@@ -284,18 +281,46 @@ void constructOneDimensionalGrid(std::vector<std::vector<int>>& grid, int* oneDi
 
         endIndices[i] = count;
     }
+}
 
-    //if (count < numColumns * numRows) oneDimensionalGrid[count] = -1;
+void runFrame()
+{
+    // Clear screen each frame
+    glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
 
-    /*
-    if (timeCount > 220)
-    {
-        for (int i = 0; i < count; i++) 
-        {
-            std::cout << "Start of cell " << i << ": " << startingIndices[i] << ", End of cell " << i << ": " << endIndices[i] << std::endl;
-        }
-    }
-    */
+    glGetNamedBufferSubData(particleSSBO, 0, sizeof(Particle) * particles.size(), particles.data());
+    
+    // Repopulate grid cells with particles
+    updateParticleCells(particles, grid);
+
+    int oneDimensionalGrid[particles.size()];
+    int startIndices[grid.size()];
+    int endIndices[grid.size()];
+
+    constructOneDimensionalGrid(grid, oneDimensionalGrid, startIndices, endIndices);
+
+    float mouseinfo[4] = {(leftMousePressed == 1 ? 0.0f : 1.0f), (rightMousePressed == 1 ? 0.0f : 1.0f), cursorX, cursorY};
+
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, oneDSSBO);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, particles.size() * sizeof(int), oneDimensionalGrid, GL_STATIC_DRAW);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, startIndicesSSBO);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, grid.size() * sizeof(int), startIndices, GL_STATIC_DRAW);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, endIndicesSSBO);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, grid.size() * sizeof(int), endIndices, GL_STATIC_DRAW);   
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, mouseinfoSSBO);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, 4 * sizeof(float), mouseinfo, GL_STATIC_DRAW); 
+
+    useComputeProgram(gravityCompute, particles.size());
+    useComputeProgram(updateParticleCompute, particles.size());
+    useComputeProgram(densitiesCompute, particles.size());
+    useComputeProgram(pressureCompute, particles.size());
+    useComputeProgram(viscosityCompute, particles.size());
+
+    glUseProgram(renderingShaderProgram);
+    
+    // Draw particles using instanced data from quads
+    glDrawElementsInstanced(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr, numRows * numColumns);
 }
 
 int main(int argc, char* argv[])
@@ -311,28 +336,15 @@ int main(int argc, char* argv[])
         return -1;
     }
 
-    // Initialize settings control window
-    ImGui::CreateContext();
-    ImGui_ImplGlfwGL3_Init(window, true);
-    ImGui::StyleColorsDark();
-
-    GLuint VAO;
-    GLuint quadVBO;
-    GLuint indexBuffer;
-    GLuint particleSSBO;
-    GLuint oneDSSBO;
-    GLuint startIndicesSSBO;
-    GLuint endIndicesSSBO;
-
     // Call method that creates and compiles shaders with shader sources that are #included from external files
-    GLuint renderingShaderProgram = createShaderProgram(vertexShaderSource, fragmentShaderSource);
+    renderingShaderProgram = createShaderProgram(vertexShaderSource, fragmentShaderSource);
     
     //compile compute shaders
-    GLuint updateParticleCompute = compileComputeShader(updateParticleComputeShaderSource);
-    GLuint gravityCompute = compileComputeShader(gravityComputeShaderSource);
-    GLuint densitiesCompute = compileComputeShader(calculateDensitiesComputeShaderSource);
-    GLuint pressureCompute = compileComputeShader(pressureForceComputeShaderSource);
-    GLuint viscosityCompute = compileComputeShader(viscosityForceComputeShaderSource);
+    updateParticleCompute = compileComputeShader(updateParticleComputeShaderSource);
+    gravityCompute = compileComputeShader(gravityComputeShaderSource);
+    densitiesCompute = compileComputeShader(calculateDensitiesComputeShaderSource);
+    pressureCompute = compileComputeShader(pressureForceComputeShaderSource);
+    viscosityCompute = compileComputeShader(viscosityForceComputeShaderSource);
 
 
     // Activate the shader program
@@ -360,19 +372,12 @@ int main(int argc, char* argv[])
         2, 3, 0
     };
 
-    std::vector<Particle> particles;
     initializeParticles(particles);
 
     // Pre-size grid array to the max size
-    std::vector<std::vector<int>> grid;
     grid.resize(gridWidth * gridHeight);
 
-    //std::vector<int> cellOffsets;
-    //constructCellOffsets(cellOffsets);
-
     int cellOffsets[9] = {-1 * gridWidth - 1, -gridWidth, -gridWidth + 1, -1, 0, 1, gridWidth - 1, gridWidth, gridWidth + 1};
-
-    std::vector<int> results;
 
     glGenVertexArrays(1, &VAO);
     glBindVertexArray(VAO);
@@ -402,6 +407,10 @@ int main(int argc, char* argv[])
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, endIndicesSSBO);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, endIndicesSSBO);
 
+    glGenBuffers(1, &mouseinfoSSBO);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, mouseinfoSSBO);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, mouseinfoSSBO);
+
     // Assign quad position instructions for vertex shader at layout position 0
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
@@ -410,13 +419,6 @@ int main(int argc, char* argv[])
     double lastTime = glfwGetTime();
     timeCount = 0;
     float deltaTimeSum = 0.0f;
-
-    // Put in positions to predicted particle array (used for calculations)
-    std::vector<Particle> predictedParticles;
-    for (Particle p : particles)
-    {
-        predictedParticles.push_back(p);
-    }
 
     glfwSetKeyCallback(window, key_callback);
     glfwSetCursorPosCallback(window, cursor_position_callback);
@@ -429,92 +431,53 @@ int main(int argc, char* argv[])
         double nowTime = glfwGetTime();
         float deltaTime = (float) nowTime - lastTime;
         lastTime = nowTime;
-        //float deltaTime = 1 / 240.0f;
 
         deltaTimeSum += deltaTime;
         timeCount++;
 
         // Keypress handling
-        if (commaPressed) frameCount++;
+        //if (commaPressed) frameCount++;
         if (spacePressed)
         {
-            deltaTime *= 0;
-
             if (periodHeld)
             {
-                deltaTime = 1 / 240.0f;
+                runFrame();
             }
             else if (periodPressed)
             {
-                deltaTime = 1 / 240.0f;
+                runFrame();
                 periodPressed = false;
             }
-        }
-        if (commaPressed)
-        {
-            if (frameCount < 10)
-                spacePressed = false;
-            else
+            
+            if (commaPressed)
             {
-                spacePressed = true;
-                frameCount = 0;
-                commaPressed = false;
+                if (frameCount < 10)
+                { 
+                    runFrame();
+                    frameCount++;
+                }
+                else
+                {
+                    frameCount = 0;
+                    commaPressed = false;
+                }
+            }
+
+            if (rPressed)
+            {
+                particles.clear();
+                initializeParticles(particles);
+                glBindBuffer(GL_SHADER_STORAGE_BUFFER, particleSSBO);
+                glBufferData(GL_SHADER_STORAGE_BUFFER, particles.size() * sizeof(Particle), particles.data(), GL_STATIC_DRAW);
+                runFrame();
+                rPressed = false;
             }
         }
-        if (rPressed)
+        else
         {
-            particles.clear();
-            initializeParticles(particles);
-            rPressed = false;
+            runFrame();
         }
 
-        // Clear screen each frame
-        glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
-
-        glGetNamedBufferSubData(particleSSBO, 0, sizeof(Particle) * particles.size(), particles.data());
-
-        ImGui_ImplGlfwGL3_NewFrame();
-        
-        // Repopulate grid cells with particles
-        updateParticleCells(particles, grid);
-
-        int oneDimensionalGrid[particles.size()];
-        int startIndices[grid.size()];
-        int endIndices[grid.size()];
-
-        constructOneDimensionalGrid(grid, oneDimensionalGrid, startIndices, endIndices);
-
-        glBindBuffer(GL_SHADER_STORAGE_BUFFER, oneDSSBO);
-        glBufferData(GL_SHADER_STORAGE_BUFFER, particles.size() * sizeof(int), oneDimensionalGrid, GL_STATIC_DRAW);
-        glBindBuffer(GL_SHADER_STORAGE_BUFFER, startIndicesSSBO);
-        glBufferData(GL_SHADER_STORAGE_BUFFER, grid.size() * sizeof(int), startIndices, GL_STATIC_DRAW);
-        glBindBuffer(GL_SHADER_STORAGE_BUFFER, endIndicesSSBO);
-        glBufferData(GL_SHADER_STORAGE_BUFFER, grid.size() * sizeof(int), endIndices, GL_STATIC_DRAW);        
-
-        useComputeProgram(gravityCompute, particles.size(), particleSSBO);
-        useComputeProgram(updateParticleCompute, particles.size(), particleSSBO);
-        useComputeProgram(densitiesCompute, particles.size(), particleSSBO);
-        useComputeProgram(pressureCompute, particles.size(), particleSSBO);
-        useComputeProgram(viscosityCompute, particles.size(), particleSSBO);
-
-        glUseProgram(renderingShaderProgram);
-        
-        // Draw particles using instanced data from quads
-        glDrawElementsInstanced(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr, numRows * numColumns);
-
-        // Set settings to be controlled using settings window
-        ImGui::Begin("Controls");
-        ImGui::SliderFloat("PressureMultiplier", &pressureMultiplier, 0.0f, 50.0f);
-        ImGui::SliderFloat("Gravity", &gravity, 0.0f, 200.0f);
-        ImGui::SliderFloat("targetDensity", &targetDensity, 0.5f, 10.0f);
-        ImGui::SliderFloat("restitution", &Particle::restitution, 0.0f, 1.0f);
-        ImGui::SliderFloat("viscosityStrength", &viscosityStrength, 0.0f, 100.0f);
-        ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
-        ImGui::End();
-
-        ImGui::Render();
-        ImGui_ImplGlfwGL3_RenderDrawData(ImGui::GetDrawData());
         glfwSwapBuffers(window);
         glfwPollEvents();
 
@@ -523,8 +486,6 @@ int main(int argc, char* argv[])
     std::cout << "Average FPS: " << 1 / (deltaTimeSum / timeCount) << " " << timeCount << std::endl;
 
     // Cleanup
-    ImGui_ImplGlfwGL3_Shutdown();
-    ImGui::DestroyContext();
     glfwTerminate();
     return 0;
 }

@@ -30,13 +30,13 @@ const char* pressureForceComputeShaderSource = R"glsl(
         int endIndices[];
     };
 
-    float targetDensity = 0.75;
-    float pressureMultiplier = 10;
-    const float smoothingRadius = 8.0;
+    float targetDensity = 0.005;
+    const float smoothingRadius = 4.0;
     const float M_PI = 3.14159265358979323846264338327950288419716939937510;
-    float deltaTime = 0.0008;
-    int SCREEN_WIDTH = 1000;
-    int SCREEN_HEIGHT = 800;
+    float deltaTime = 0.0022222222222;
+    float pressureMultiplier = 0.16 / deltaTime;
+    int SCREEN_WIDTH = 1800;
+    int SCREEN_HEIGHT = 1000;
     int gridWidth = int(ceil(SCREEN_WIDTH/smoothingRadius));
     int gridHeight = int(ceil(SCREEN_HEIGHT/smoothingRadius));
     int cellOffsets[9] =  int[9](-gridWidth - 1, -gridWidth, -gridWidth + 1, -1, 0, 1, gridWidth - 1, gridWidth, gridWidth + 1);

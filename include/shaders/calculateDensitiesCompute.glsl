@@ -31,11 +31,11 @@ const char* calculateDensitiesComputeShaderSource = R"glsl(
     };
 
     const float mass = 1.0;
-    const float smoothingRadius = 8.0;
+    const float smoothingRadius = 4.0;
     const float M_PI = 3.14159265358979323846264338327950288419716939937510;
-    const float deltaTime = 0.0008;
-    int SCREEN_WIDTH = 1000;
-    int SCREEN_HEIGHT = 800;
+    const float deltaTime = 0.0022222222222;
+    int SCREEN_WIDTH = 1800;
+    int SCREEN_HEIGHT = 1000;
     int gridWidth = int(ceil(SCREEN_WIDTH/smoothingRadius));
     int gridHeight = int(ceil(SCREEN_HEIGHT/smoothingRadius));
     int cellOffsets[9] =  int[9](-gridWidth - 1, -gridWidth, -gridWidth + 1, -1, 0, 1, gridWidth - 1, gridWidth, gridWidth + 1);
