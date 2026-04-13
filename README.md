@@ -1,46 +1,114 @@
 # FluidSim
-A simple real-time 2D fluid simulation using Smoothed Particle Hydrodynamics (SPH) with OpenGL compute shaders.
 
-![FluidSim Demo](assets/fluid_sim_demo.gif)
+A real-time 2D fluid simulation using Smoothed Particle Hydrodynamics (SPH),
+built in C++ with OpenGL compute shaders for GPU-accelerated physics.
 
 ## Overview
-This project implements an SPH particle simulator in C++ using GLFW for windowing, GLAD for OpenGL function loading, and GLSL compute shaders for physics updates. Particles are rendered as instanced quads, and spatial hashing is used to group particles into grid cells for neighbor queries.
+
+This project implements SPH fluid dynamics entirely on the GPU using GLSL
+compute shaders and OpenGL Shader Storage Buffer Objects (SSBOs). Particles
+are color-coded by velocity, giving a vivid visual sense of fluid behavior —
+from tight, pressurized splashes to slow gas-like expansion.
+
+Built collaboratively as both a fluid simulation and a learning exercise in
+GPGPU programming. We used Sebastian Lague's fluid simulation video as
+inspiration, read the same papers he referenced, and derived the SPH math
+ourselves. His implementation uses HLSL; we chose GLSL deliberately to learn
+a different shader pipeline.
+
+**Reference:** [Sebastian Lague — Coding Adventure: Fluid Simulation](https://youtu.be/rSKMYc1CQHE?si=b2XPkc6CLPTXR4fl)
 
 ## Features
-- GPU-accelerated physics using OpenGL compute shaders
-- Density, pressure, viscosity, and gravity calculations
-- Particle collision handling with screen boundaries
-- Mouse interaction with left/right button forces
-- Real-time rendering using instanced geometry
+
+- GPU-accelerated SPH physics via GLSL compute shaders
+- Spatial hashing for O(n) neighbor queries
+- Density, pressure, viscosity, and gravity force calculations
+- Velocity-based particle color coding
+- Mouse interaction — push or pull particles with configurable strength and radius
+- Adjustable simulation parameters: gravity, target density, mouse force
+- Particle collision response at screen boundaries
+- Real-time rendering using instanced quad geometry
+
+## Requirements
+
+- OpenGL 4.6 (compute shader and SSBO support required)
+- Windows (main branch) or Apple Silicon macOS (mac branch)
 
 ## Build
-The project is configured to compile with `g++` on Windows.
 
-Example build command:
-```sh
-cd c:\Users\lawpe\Dev\FluidSim
-g++ -g -Iinclude -Llib src\*.cpp src\glad.c include\imgui\*.cpp -lglfw3 -lopengl32 -lgdi32 -o fluidsim.exe
+### Windows (main branch)
+
+From the repo root:
+
+```bash
+g++ -g -Iinclude -Llib src\*.cpp src\glad.c include\imgui\*.cpp \
+    -lglfw3 -lopengl32 -lgdi32 -o fluidsim.exe
+```
+
+### macOS — Apple Silicon (mac branch)
+
+Switch to the mac branch, then from the repo root:
+
+```bash
+/usr/bin/g++ -g -Iinclude -Llib src/*.cpp src/glad.c include/imgui/*.cpp \
+    -lglfw3 \
+    -framework OpenGL \
+    -framework Cocoa \
+    -framework IOKit \
+    -framework CoreVideo \
+    -framework CoreFoundation \
+    -o fluidsim.o
 ```
 
 ## Run
-After building, run the executable:
-```sh
+
+**Windows:**
+```bash
 .\fluidsim.exe
 ```
 
+**macOS:**
+```bash
+./fluidsim.o
+```
+
 ## Controls
-- `Space`: pause/resume simulation
-- `.` (period): step one frame when paused
-- `,` (comma): step up to 10 frames when paused
-- `R`: reset particles to the initial grid
-- Left mouse button: interact with particles
-- Right mouse button: alternate mouse interaction mode
+
+| Input | Action |
+|---|---|
+| `Space` | Pause / resume |
+| `.` | Step one frame (while paused) |
+| `,` | Step up to 10 frames (while paused) |
+| `R` | Reset particles to initial grid |
+| Left mouse button | Push particles away |
+| Right mouse button | Pull particles toward cursor |
+
+Simulation parameters (gravity, target density, mouse strength and radius)
+are adjustable via the ImGui panel at runtime.
 
 ## Project Structure
-- `src/main.cpp` - application entry point, OpenGL setup, input callbacks, compute shader dispatch, and rendering loop
-- `src/particle.hpp` - particle data structure, collision logic, and utility methods
-- `include/shaders/` - GLSL shader sources for rendering and compute-based fluid simulation
-- `include/` - third-party headers for GLAD, GLFW, GLM, and ImGui
+src/
+main.cpp          — OpenGL setup, input handling, compute dispatch, render loop
+particle.hpp      — Particle data structure, collision logic, utility methods
+include/
+shaders/          — GLSL shader sources (rendering + compute)
+imgui/            — ImGui headers
+glad.h / glfw /   — OpenGL loader and windowing
+glm/              — Math library
 
-## Notes
-The simulation expects OpenGL 4.6 compatibility for compute shader support and uses Shader Storage Buffer Objects (SSBOs) to transfer particle data between CPU and GPU.
+## Known Limitations
+
+- Simulation becomes unstable and may crash above ~300,000 particles;
+  root cause not yet identified
+- No 3D support; extending to 3D SPH is a natural next step
+- Further GPU-side optimizations (e.g. prefix sum compaction, better grid
+  boundary handling) were scoped out but not implemented
+
+## Credits
+
+Developed collaboratively by [lawpeter](https://github.com/lawpeter) and
+[owendpoole](https://github.com/owendpoole).
+
+SPH math derived from the following papers, as referenced by Sebastian Lague:
+- Müller et al., *Particle-Based Fluid Simulation for Interactive Applications* (2003)
+- Monaghan, *Smoothed Particle Hydrodynamics* (1992)
