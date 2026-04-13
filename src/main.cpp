@@ -44,8 +44,8 @@ float cursorY = 0.0f;
 bool leftMousePressed = false;
 bool rightMousePressed = false;
 
-int numRows = 580;
-int numColumns = 500;
+int numRows = 200;
+int numColumns = 200;
 
 float fixedDeltaTime = 0.0022222222222f;
 

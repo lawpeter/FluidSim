@@ -21,9 +21,9 @@ const char* gravityComputeShaderSource = R"glsl(
     };
 
 
-    vec2 gravity = vec2(0.0, 0.0);
-    int SCREEN_WIDTH = 1800;
-    int SCREEN_HEIGHT = 1000;
+    vec2 gravity = vec2(0.0, -9.0);
+    int SCREEN_WIDTH = 800;
+    int SCREEN_HEIGHT = 600;
     float mouseInteractionRadius = 60;
     float mouseForceStrength = 400;
 

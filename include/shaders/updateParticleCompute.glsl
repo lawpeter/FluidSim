@@ -19,8 +19,8 @@ const char* updateParticleComputeShaderSource = R"glsl(
     const float deltaTime = 0.0022222222222;
     const float radius = 1.0;
     const float restitution = 0.4;
-    int SCREEN_WIDTH = 1800;
-    int SCREEN_HEIGHT = 1000;
+    int SCREEN_WIDTH = 800;
+    int SCREEN_HEIGHT = 600;
 
     void main()
     {
