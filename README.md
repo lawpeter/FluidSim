@@ -1,12 +1,13 @@
 # FluidSim
 
-A real-time 2D fluid simulation using Smoothed Particle Hydrodynamics (SPH),
+An interactive GPU-accelerated 2D fluid simulation using Smoothed Particle Hydrodynamics (SPH),
 built in C++ with OpenGL compute shaders for GPU-accelerated physics.
 
 ## Overview
 
-This project implements SPH fluid dynamics entirely on the GPU using GLSL
-compute shaders and OpenGL Shader Storage Buffer Objects (SSBOs). Particles
+This project uses a hybrid CPU/GPU pipeline: particle state is read back to
+the CPU for spatial-grid construction, index data is uploaded, and SPH work is
+dispatched through GLSL compute shaders using OpenGL Shader Storage Buffer Objects (SSBOs). Particles
 are color-coded by velocity, giving a vivid visual sense of fluid behavior —
 from tight, pressurized splashes to slow gas-like expansion.
 
@@ -21,13 +22,13 @@ a different shader pipeline.
 ## Features
 
 - GPU-accelerated SPH physics via GLSL compute shaders
-- Spatial hashing for O(n) neighbor queries
+- A uniform spatial grid restricts neighbor searches to nearby cells; work depends on cell occupancy
 - Density, pressure, viscosity, and gravity force calculations
 - Velocity-based particle color coding
 - Mouse interaction — push or pull particles with configurable strength and radius
 - Adjustable simulation parameters: gravity, target density, mouse force
 - Particle collision response at screen boundaries
-- Real-time rendering using instanced quad geometry
+- Interactive rendering using instanced quad geometry
 
 ## Requirements
 
@@ -96,7 +97,14 @@ imgui/            — ImGui headers
 glad.h / glfw /   — OpenGL loader and windowing
 glm/              — Math library
 
-## Known Limitations
+## Status and Performance
+
+Complete; no active development is planned. Peter observed approximately 290,000 particles at around 35 FPS in repeated runs on an NVIDIA RTX 5070 Ti / AMD Ryzen 9 9950X desktop. This was an informal observation, not a controlled benchmark. Frame rate does not establish synchronization between simulation time and wall-clock time.
+
+## Limitations
+
+- Behavior was evaluated qualitatively; no quantitative comparison against analytical, experimental, or validated CFD reference cases was performed.
+- CPU grid construction and readback/upload introduce CPU/GPU synchronization overhead.
 
 - Simulation becomes unstable and may crash above ~300,000 particles;
   root cause not yet identified
